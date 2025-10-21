@@ -1,99 +1,64 @@
-
-float4x4 g_matWorld;
-float4x4 g_matView;
 float4x4 g_matWorldViewProj;
+float4 g_lightNormal = { 0.3f, 1.0f, 0.5f, 0.0f };
+float3 g_ambient = { 0.3f, 0.3f, 0.3f };
 
-float g_fNear;
-float g_fFar;
+bool g_bUseTexture = true;
 
-float g_posRange;
-
-bool g_bUseTexture = false;
-
-texture g_texBase;
-sampler sampBase = sampler_state
+texture texture1;
+sampler textureSampler = sampler_state
 {
-    Texture = (g_texBase);
-    MinFilter = POINT;
-    MagFilter = POINT;
-    MipFilter = POINT;
-    AddressU = WRAP;
-    AddressV = WRAP;
+    Texture = (texture1);
+    MipFilter = LINEAR;
+    MinFilter = LINEAR;
+    MagFilter = LINEAR;
 };
 
-void VertexShader1(in float4 inPosition   : POSITION,
-                   in float4 inNormal     : NORMAL0,
-                   in float4 inTexCood    : TEXCOORD0,
-
-                   out float4 outPosition : POSITION,
-                   out float4 outDiffuse  : COLOR0,
-                   out float4 outTexCood  : TEXCOORD0,
-                   out float outViewZ     : TEXCOORD1,
-                   out float3 outWorldPos : TEXCOORD2)
+// Å• í∏ì_ÉVÉFÅ[É_Å[ÅFclipãÛä‘ÇÃ z/w Ç 0..1 Ç…ÇµÇƒìnÇ∑ÅiîÒê¸å`ÇæÇ™í«â¡íËêîÇ»ÇµÇ≈ä»íPÅj
+void VertexShader1(
+    in float4 inPosition : POSITION,
+    in float3 inNormal : NORMAL,
+    in float2 inTexCoord0 : TEXCOORD0,
+    out float4 outPosition : POSITION0,
+    out float2 outTexCoord0 : TEXCOORD0,
+    out float outDepth01 : TEXCOORD1)
 {
-    float4 worldPos = mul(inPosition, g_matWorld);
-    outPosition = mul(worldPos, g_matWorldViewProj);
+    float4 clipPosition = mul(inPosition, g_matWorldViewProj);
+    outPosition = clipPosition;
+    outTexCoord0 = inTexCoord0;
 
-    // Á∞°Âçò„Å™„É©„Ç§„ÉÜ„Ç£„É≥„Ç∞
-    float lightIntensity = 0.f;
-
-    // Âπ≥Ë°åÂÖâÊ∫ê„Å´„Çà„Çã„É©„Ç§„ÉÜ„Ç£„É≥„Ç∞„ÅÇ„Çäor„Å™„Åó
-    if (true)
-    {
-        lightIntensity = dot(inNormal, normalize(float4(-0.3, 1.0, -0.5, 0)));
-    }
-    else
-    {
-        lightIntensity = 1.0f;
-    }
-
-    outDiffuse.rgb = max(0, lightIntensity) + 0.3;
-    outDiffuse.a = 1.0f;
-
-    outTexCood = inTexCood;
-    
-    float4 vpos = mul(worldPos, g_matView);
-    outViewZ = vpos.z;
-    outWorldPos = worldPos.xyz;
+    // 0..1Åiãﬂ=0, âì=1Åj
+    float depthNdc = clipPosition.z / clipPosition.w;
+    outDepth01 = saturate(depthNdc);
 }
 
-void PixelShaderMRT3(in float4 inScreenColor : COLOR0,
-                     in float2 inTexCood     : TEXCOORD0,
-                     in float  inViewZ       : TEXCOORD1,
-                     in float3 inWorldPos    : TEXCOORD2,
-
-                     out float4 outColor     : COLOR0, // Color
-                     out float4 outZ         : COLOR1, // ZÁîªÂÉè
-                     out float4 outPosWS     : COLOR2  // POSÁîªÂÉè
-)
+// Å• ÉsÉNÉZÉãÉVÉFÅ[É_Å[ÅFMRTÇÃCOLOR1Ç…ÉOÉåÅ[ÉXÉPÅ[ÉãÇ≈ê[ìxÇèëÇ´çûÇﬁ
+void PixelShaderMRT(
+    in float2 inTexCoord0 : TEXCOORD0,
+    in float inDepth01 : TEXCOORD1,
+    out float4 outColor0 : COLOR0,
+    out float4 outColor1 : COLOR1)
 {
-    float3 lit = inScreenColor.rgb;
-    float3 base = lit;
+    float4 baseColor = float4(0.5, 0.5, 0.5, 1.0);
 
     if (g_bUseTexture)
     {
-        float3 tex = tex2D(sampBase, inTexCood).rgb;
-        base = tex * lit;
+        baseColor = tex2D(textureSampler, inTexCoord0);
     }
 
-    outColor = float4(base, 1.0f);
+    outColor0 = baseColor;
 
-    float linearZ = saturate((inViewZ - g_fNear) / (g_fFar - g_fNear));
-    outZ = float4(linearZ, linearZ, linearZ, linearZ);
-
-    float3 normalizedPosWS = inWorldPos / g_posRange;
-    float3 enc = saturate(normalizedPosWS * 0.5 + 0.5);
-    outPosWS = float4(enc, 1.0f);
+    // ãﬂÇ¢ÇŸÇ«çïÅAâìÇ¢ÇŸÇ«îí
+    float d = inDepth01;
+    outColor1 = float4(d, d, d, 1.0);
 }
 
-// MRT...Multi Render Target
+// ==== í«â¡: MRT ÇégÇ§ÉeÉNÉjÉbÉN ====
 technique TechniqueMRT
 {
     pass P0
     {
         CullMode = NONE;
         VertexShader = compile vs_3_0 VertexShader1();
-        PixelShader = compile ps_3_0 PixelShaderMRT3();
+        PixelShader = compile ps_3_0 PixelShaderMRT();
     }
 }
-
