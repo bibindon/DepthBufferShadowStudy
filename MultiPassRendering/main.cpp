@@ -445,8 +445,8 @@ void RenderPass2()
     D3DXVECTOR3 leye(40, 50, -40), lat(0,0,0), lup(0,1,0);
     D3DXMatrixLookAtLH(&Lview, &leye, &lat, &lup);
 
-    float lNear = 1.0f, lFar = 200.0f;
-    float oW = 115.0f,  oH = 115.0f;   // 5x5 * 10 間隔 + 余白
+    float lNear = 40.0f, lFar = 120.0f;
+    float oW = 50.0f,  oH = 50.0f;   // 5x5 * 10 間隔 + 余白
     D3DXMatrixOrthoLH(&Lproj, oW, oH, lNear, lFar);
 //    D3DXMatrixPerspectiveFovLH(&Lproj, D3DXToRadian(45.0f),
 //                               (float)SCREEN_W/SCREEN_H, 1.0f, 100.0f);
@@ -470,7 +470,8 @@ void RenderPass2()
         D3DXMATRIX W, LWVP;
         D3DXMatrixTranslation(&W, gx * SPACING, 0.0f, gz * SPACING);
         LWVP = W * Lview * Lproj;
-
+        
+        g_pEffect2->SetMatrix("g_matWorld", &W);                  // ★ 追加
         hr = g_pEffect2->SetMatrix("g_matWorldViewProj", &LWVP);   assert(hr == S_OK);
         hr = g_pEffect2->CommitChanges();                           assert(hr == S_OK);
 

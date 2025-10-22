@@ -109,12 +109,14 @@ VSOutDepth DepthFromLightVS(VSInDepth vin)
 {
     VSOutDepth vout;
 
+    float4 worldPos = mul(vin.positionOS, g_matWorld);           // ★ 追加：OS→WS
+    float4 clipPos  = mul(vin.positionOS, g_matWorldViewProj);   // LWVP はそのまま使う
+    float4 posLV    = mul(worldPos, g_matLightView);             // ★ WS→LightView に修正
+
     // 画面位置（ライトの WVP は既存の g_matWorldViewProj を利用）
-    float4 clipPos = mul(vin.positionOS, g_matWorldViewProj);
     vout.positionCS = clipPos;
 
     // 線形深度（ライト View 空間 z を near..far で正規化）
-    float4 posLV = mul(vin.positionOS, g_matLightView);
     float  depthLinear = (posLV.z - g_lightNear) / (g_lightFar - g_lightNear);
     vout.depth01 = saturate(depthLinear);
 
