@@ -290,21 +290,21 @@ void InitD3D(HWND hWnd)
                                 &g_pRenderTarget);
     assert(hResult == S_OK);
 
-//    hResult = D3DXCreateTexture(g_pd3dDevice,
-//                                SCREEN_W, SCREEN_H,
-//                                1,
-//                                D3DUSAGE_RENDERTARGET,
-//                                D3DFMT_A16B16G16R16,
-//                                D3DPOOL_DEFAULT,
-//                                &g_pRenderTarget2);
-
     hResult = D3DXCreateTexture(g_pd3dDevice,
                                 SCREEN_W, SCREEN_H,
                                 1,
                                 D3DUSAGE_RENDERTARGET,
-                                D3DFMT_R32F,
+                                D3DFMT_A16B16G16R16,
                                 D3DPOOL_DEFAULT,
                                 &g_pRenderTarget2);
+
+//    hResult = D3DXCreateTexture(g_pd3dDevice,
+//                                SCREEN_W, SCREEN_H,
+//                                1,
+//                                D3DUSAGE_RENDERTARGET,
+//                                D3DFMT_R32F,
+//                                D3DPOOL_DEFAULT,
+//                                &g_pRenderTarget2);
     assert(hResult == S_OK);
 
     hResult = D3DXCreateTexture(g_pd3dDevice,
@@ -371,7 +371,7 @@ void RenderPass1()
     // カメラ行列（V/P）
     D3DXMATRIX V, P;
     D3DXMatrixPerspectiveFovLH(&P, D3DXToRadian(45.0f),
-                               (float)SCREEN_W / SCREEN_H, 1.0f, 50.0f);
+                               (float)SCREEN_W / SCREEN_H, 1.0f, 100.0f);
     D3DXVECTOR3 eye(10.0f * sinf(g_fTime), 5.0f, -10.0f * cosf(g_fTime));
     D3DXVECTOR3 at(0,0,0), up(0,1,0);
     D3DXMatrixLookAtLH(&V, &eye, &at, &up);
@@ -442,12 +442,14 @@ void RenderPass2()
 
     // ライト行列（方向光：直交投影。5x5 を覆うよう広めに）
     D3DXMATRIX Lview, Lproj;
-    D3DXVECTOR3 leye(20, 10, -20), lat(0,0,0), lup(0,1,0);
+    D3DXVECTOR3 leye(40, 50, -40), lat(0,0,0), lup(0,1,0);
     D3DXMatrixLookAtLH(&Lview, &leye, &lat, &lup);
 
-    float lNear = 1.0f, lFar = 40.0f;
-    float oW = 16.0f,  oH = 9.0f;   // 5x5 * 10 間隔 + 余白
+    float lNear = 1.0f, lFar = 200.0f;
+    float oW = 115.0f,  oH = 115.0f;   // 5x5 * 10 間隔 + 余白
     D3DXMatrixOrthoLH(&Lproj, oW, oH, lNear, lFar);
+//    D3DXMatrixPerspectiveFovLH(&Lproj, D3DXToRadian(45.0f),
+//                               (float)SCREEN_W/SCREEN_H, 1.0f, 100.0f);
 
     hr = g_pd3dDevice->BeginScene();                            assert(hr == S_OK);
 
@@ -494,7 +496,7 @@ void RenderPass2()
     // カメラ行列（V/P）
     D3DXMATRIX V, P;
     D3DXMatrixPerspectiveFovLH(&P, D3DXToRadian(45.0f),
-                               (float)SCREEN_W/SCREEN_H, 1.0f, 50.0f);
+                               (float)SCREEN_W/SCREEN_H, 1.0f, 100.0f);
     D3DXVECTOR3 eye(10.0f*sinf(g_fTime), 5.0f, -10.0f*cosf(g_fTime));
     D3DXVECTOR3 at(0,0,0), up(0,1,0);
     D3DXMatrixLookAtLH(&V, &eye, &at, &up);
@@ -582,7 +584,7 @@ void RenderPass3()
     hr = g_pEffect2->End();     assert(hr==S_OK);
 
     // --- デバッグ小窓：B(左上), C(左下) を 1/2 スケールでスプライト表示 ---
-    if (false)
+    if (true)
     {
         hr = g_pSprite->Begin(D3DXSPRITE_ALPHABLEND); assert(hr==S_OK); 
         D3DXMATRIX m;

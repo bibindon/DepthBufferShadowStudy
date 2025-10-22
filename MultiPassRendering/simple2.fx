@@ -236,7 +236,10 @@ float4 PixelShaderWorldPos(
                 } else {
                     float depthLightSpace = tex2D(shadowSampler, uvS).r;
                     // 比較（ライト側が小さければ影）
-                    shadowSum += (depthLightSpace < (depthViewSpace - g_shadowBias)) ? 1.0f : 0.0f;
+                    if (depthLightSpace < (depthViewSpace - g_shadowBias))
+                    {
+                        shadowSum += 1.0f;
+                    }
                 }
             }
         }
