@@ -173,3 +173,27 @@ technique TechniqueComposite
     }
 }
 
+// 追加パラメータ（可視化スケール）
+float g_worldVisScale = 0.02f;
+
+// 既存の VertexShaderWS から worldPos を受け取り、RGB=XYZ で出力
+float4 PixelShaderWorldPos(
+    in float4 posCS     : POSITION0,
+    in float2 uv        : TEXCOORD0,
+    in float3 worldPos  : TEXCOORD1) : COLOR0
+{
+    float3 enc = worldPos * g_worldVisScale + 0.5f; // [-S..S] → [0..1]
+    return float4(saturate(enc), 1.0f);
+}
+
+technique TechniqueWorldPos
+{
+    pass P0
+    {
+        CullMode = NONE;
+        VertexShader = compile vs_3_0 VertexShaderWS();
+        PixelShader  = compile ps_3_0 PixelShaderWorldPos();
+    }
+}
+
+
