@@ -213,7 +213,7 @@ float4 PixelShaderWorldPos(
 
     float shadow = 0.0f;
 
-    if (false)
+    if (true)
     {
         // 3) 5x5 PCF：等重み平均。外れUVサンプルは「影なし = 0」扱い
         float shadowSum = 0.0f;

@@ -558,7 +558,7 @@ void RenderPass2()
     g_pRenderTarget2->GetLevelDesc(0, &descB);
     hr = g_pEffect2->SetFloat("g_shadowTexelW", 1.0f / (float)descB.Width);  assert(hr == S_OK);
     hr = g_pEffect2->SetFloat("g_shadowTexelH", 1.0f / (float)descB.Height); assert(hr == S_OK);
-    hr = g_pEffect2->SetFloat("g_shadowBias",   0.002f);                      assert(hr == S_OK);
+    hr = g_pEffect2->SetFloat("g_shadowBias",   0.001f);                      assert(hr == S_OK);
 
     // TechniqueWorldPos（worldPos を使って影付け）
     hr = g_pEffect2->SetTechnique("TechniqueWorldPos");               assert(hr == S_OK);
