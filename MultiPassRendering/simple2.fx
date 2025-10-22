@@ -221,19 +221,25 @@ float4 PixelShaderWorldPos(
         // 1テクセルのオフセット
         float2 duv = float2(g_shadowTexelW, g_shadowTexelH);
 
+        // 奇数であること
+        const int SIZE = 5;
+
         // 中心±2の5x5
         [unroll]
-        for (int j = -2; j <= 2; ++j)
+        for (int j = -(SIZE / 2); j <= (SIZE / 2); ++j)
         {
             [unroll]
-            for (int i = -2; i <= 2; ++i)
+            for (int i = -(SIZE / 2); i <= (SIZE / 2); ++i)
             {
                 float2 uvS = uvL + float2(i, j) * duv;
 
                 // 外れUVは「影なし」= 0 として数えない（= サンプル値 0 扱い）
-                if (any(uvS < 0.0f) || any(uvS > 1.0f)) {
+                if (any(uvS < 0.0f) || any(uvS > 1.0f))
+                {
                     // 何もしない（0加算）
-                } else {
+                }
+                else
+                {
                     float depthLightSpace = tex2D(shadowSampler, uvS).r;
                     // 比較（ライト側が小さければ影）
                     if (depthLightSpace < (depthViewSpace - g_shadowBias))
@@ -245,7 +251,7 @@ float4 PixelShaderWorldPos(
         }
 
         // 25サンプルの平均（0..1）
-        shadow = shadowSum / 25.0f;
+        shadow = shadowSum / pow(SIZE, 2);
     }
     else
     {

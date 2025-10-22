@@ -478,7 +478,7 @@ void RenderPass2()
     D3DXMatrixLookAtLH(&Lview, &leye, &lat, &lup);
 
     float lNear = 10.0f, lFar = 200.0f;
-    float oW = 100.0f,  oH = 100.0f;   // 5x5 * 10 間隔 + 余白
+    float oW = 40.0f,  oH = 40.0f;   // 5x5 * 10 間隔 + 余白
     D3DXMatrixOrthoLH(&Lproj, oW, oH, lNear, lFar);
 
     hr = g_pd3dDevice->BeginScene();                            assert(hr == S_OK);
@@ -558,7 +558,7 @@ void RenderPass2()
     g_pRenderTarget2->GetLevelDesc(0, &descB);
     hr = g_pEffect2->SetFloat("g_shadowTexelW", 1.0f / (float)descB.Width);  assert(hr == S_OK);
     hr = g_pEffect2->SetFloat("g_shadowTexelH", 1.0f / (float)descB.Height); assert(hr == S_OK);
-    hr = g_pEffect2->SetFloat("g_shadowBias",   0.001f);                      assert(hr == S_OK);
+    hr = g_pEffect2->SetFloat("g_shadowBias",   0.002f);                      assert(hr == S_OK);
 
     // TechniqueWorldPos（worldPos を使って影付け）
     hr = g_pEffect2->SetTechnique("TechniqueWorldPos");               assert(hr == S_OK);
