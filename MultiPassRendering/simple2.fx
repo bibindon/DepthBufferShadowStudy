@@ -108,3 +108,57 @@ technique TechniqueDepthFromLight
         PixelShader  = compile ps_3_0 DepthFromLightPS();
     }
 }
+
+// 既存定義はそのまま…
+
+// ▼ 追加：2枚目のテクスチャ
+texture texture2;
+sampler textureSampler2 = sampler_state
+{
+    Texture   = (texture2);
+    MipFilter = LINEAR;
+    MinFilter = LINEAR;
+    MagFilter = LINEAR;
+};
+
+// ▼ 追加：合成比
+float g_mix = 0.5f;   // 0 = texture1, 1 = texture2
+
+// ▼ そのまま描く（色いじらない）ブリット
+float4 BlitPS(in float4 inPosition : POSITION,
+              in float2 inTexCood  : TEXCOORD0) : COLOR0
+{
+    return tex2D(textureSampler, inTexCood);
+}
+
+technique TechniqueBlit
+{
+    pass P0
+    {
+        CullMode = NONE;
+        VertexShader = compile vs_3_0 VertexShader1(); // 既存のVSを再利用
+        PixelShader  = compile ps_3_0 BlitPS();
+    }
+}
+
+// ▼ 2枚を線形合成
+float4 CompositePS(in float4 inPosition : POSITION,
+                   in float2 inTexCood  : TEXCOORD0) : COLOR0
+{
+    float4 a = tex2D(textureSampler,  inTexCood);
+    float4 b = tex2D(textureSampler2, inTexCood);
+    return lerp(a, b, g_mix);
+}
+
+technique TechniqueComposite
+{
+    pass P0
+    {
+        CullMode = NONE;
+        AlphaBlendEnable = FALSE;
+
+        VertexShader = compile vs_3_0 VertexShader1();
+        PixelShader  = compile ps_3_0 CompositePS();
+    }
+}
+
