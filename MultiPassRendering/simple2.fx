@@ -5,6 +5,11 @@ float4x4 g_matLightView;
 float    g_lightNear = 1.0f;
 float    g_lightFar  = 30.0f;   // まずはタイトに
 
+// ★ 追加：PCF用のテクセルサイズとバイアス（C++側で設定）
+float g_shadowTexelW;   // = 1.0 / shadowMapWidth
+float g_shadowTexelH;   // = 1.0 / shadowMapHeight
+float g_shadowBias;     // 例: 0.002～0.005 で調整
+
 // ★ 追加：ライトの ViewProj（ライトでBを作ったときの行列そのもの）
 float4x4 g_matLightViewProj;
 
@@ -179,35 +184,64 @@ technique TechniqueComposite
 // 追加パラメータ（可視化スケール）
 float g_worldVisScale = 0.02f;
 
-// 既存: ワールド座標可視化のテクニックを「シャドウ判定出力」に改造
 float4 PixelShaderWorldPos(
     in float4 posCS     : POSITION0,
     in float2 uv        : TEXCOORD0,
     in float3 worldPos  : TEXCOORD1) : COLOR0
 {
-    // 1) ライトView空間の z を near..far で正規化 → depthViewSpace
+    // 1) ライトView空間 z を 0..1 に正規化 → depthViewSpace
     float4 posLV = mul(float4(worldPos, 1.0f), g_matLightView);
     float  depthViewSpace = (posLV.z - g_lightNear) / (g_lightFar - g_lightNear);
     depthViewSpace = saturate(depthViewSpace);
 
-    // 2) ライトのクリップ→NDC→UV（Yは上下反転）
+    // 2) ライトのクリップ→NDC→UV（Y反転）。直交/透視どちらでもOK
     float4 clipL = mul(float4(worldPos, 1.0f), g_matLightViewProj);
-    float2 ndc   = clipL.xy / clipL.w;                    // [-1,1]
-    float2 uvL   = ndc * float2(0.5f, -0.5f) + 0.5f;      // [0,1] へ
-    uvL = saturate(uvL);                                   // 念のため枠外はクランプ
-
-    // 3) テクスチャB（ライトから見た深度可視化）をサンプル → depthLightSpace
-    float depthLightSpace = tex2D(shadowSampler, uvL).r;
-
-    // 4) 比較：depthLightSpace < depthViewSpace なら影
-    if (depthLightSpace < depthViewSpace - 0.003)
-    {
-        return float4(0.0f, 0.0f, 0.0f, 0.5f);
+    // ライトから見て背面や手前（w<=0）は「影なし」扱い
+    if (clipL.w <= 0) {
+        return float4(0,0,0,0);
     }
-    else
-    {
-        return float4(0.0f, 0.0f, 0.0f, 0.0f);
+    float2 ndc   = clipL.xy / clipL.w;                // [-1,1]
+    float2 uvL   = ndc * float2(0.5f, -0.5f) + 0.5f;  // [0,1]
+
+    // DX9の半テクセル補正（必要なら）：レンダテクスチャ中心に合わせる
+    uvL += float2(0.5f * g_shadowTexelW, 0.5f * g_shadowTexelH);
+
+    // ベースUVが枠外なら「影なし」
+    if (any(uvL < 0.0f) || any(uvL > 1.0f)) {
+        return float4(0,0,0,0);
     }
+
+    // 3) 5x5 PCF：等重み平均。外れUVサンプルは「影なし = 0」扱い
+    float shadowSum = 0.0f;
+
+    // 1テクセルのオフセット
+    float2 duv = float2(g_shadowTexelW, g_shadowTexelH);
+
+    // 中心±2の5x5
+    [unroll]
+    for (int j = -2; j <= 2; ++j)
+    {
+        [unroll]
+        for (int i = -2; i <= 2; ++i)
+        {
+            float2 uvS = uvL + float2(i, j) * duv;
+
+            // 外れUVは「影なし」= 0 として数えない（= サンプル値 0 扱い）
+            if (any(uvS < 0.0f) || any(uvS > 1.0f)) {
+                // 何もしない（0加算）
+            } else {
+                float depthLightSpace = tex2D(shadowSampler, uvS).r;
+                // 比較（ライト側が小さければ影）
+                shadowSum += (depthLightSpace < (depthViewSpace - g_shadowBias)) ? 1.0f : 0.0f;
+            }
+        }
+    }
+
+    // 25サンプルの平均（0..1）
+    float shadow = shadowSum / 25.0f;
+
+    // 指定：影は RGBA(0,0,0,0.5)、PCF平均なので 0.5 * shadow
+    return float4(0.0f, 0.0f, 0.0f, 0.5f * shadow);
 }
 
 technique TechniqueWorldPos

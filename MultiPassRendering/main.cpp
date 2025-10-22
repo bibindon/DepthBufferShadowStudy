@@ -476,6 +476,10 @@ void RenderPass2()
     hr = g_pEffect2->SetFloat ("g_lightFar",         lFar);    assert(hr==S_OK);
     hr = g_pEffect2->SetTexture("textureShadow",     g_pRenderTarget2); assert(hr==S_OK);
 
+    hr = g_pEffect2->SetFloat("g_shadowTexelW", 1.0f / (float)SCREEN_W); assert(hr==S_OK);
+    hr = g_pEffect2->SetFloat("g_shadowTexelH", 1.0f / (float)SCREEN_H); assert(hr==S_OK);
+    hr = g_pEffect2->SetFloat("g_shadowBias",   0.004f);                 assert(hr==S_OK);
+
     // TechniqueWorldPos で描く（既存のセットに続けてOK）
     hr = g_pEffect2->SetTechnique("TechniqueWorldPos");             assert(hr==S_OK);
     hr = g_pEffect2->SetMatrix  ("g_matWorld", &I);                 assert(hr==S_OK);
