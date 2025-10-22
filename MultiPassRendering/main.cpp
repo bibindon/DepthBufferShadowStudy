@@ -427,11 +427,19 @@ void RenderPass1()
     D3DXMatrixLookAtLH(&matLightView, &lightEye, &lightAt, &lightUp);
 
     /* まずは透視投影。平行光なら D3DXMatrixOrthoLH に置き換え可能。 */
-    D3DXMatrixPerspectiveFovLH(&matLightProj,
-                               D3DXToRadian(45.0f),
-                               (float)SCREEN_W / SCREEN_H,
-                               1.0f,
-                               50.0f);
+//    D3DXMatrixPerspectiveFovLH(&matLightProj,
+//                               D3DXToRadian(45.0f),
+//                               (float)SCREEN_W / SCREEN_H,
+//                               1.0f,
+//                               50.0f);
+
+    float orthoWidth  = 16.0f;   // まずは広めに取って様子を見る
+    float orthoHeight = 9.0f;
+    float lightNear   = 1.0f;
+    float lightFar    = 50.0f;
+
+    // 平行光源に
+    D3DXMatrixOrthoLH(&matLightProj, orthoWidth, orthoHeight, lightNear, lightFar);
 
     matLightWVP = matIdentity * matLightView * matLightProj;
 
@@ -443,11 +451,11 @@ void RenderPass1()
     assert(hResult == S_OK);
 
     // ライト View 行列（既に matLightView を作っている箇所の直後でOK）
-g_pEffect2->SetMatrix("g_matLightView", &matLightView);
+    g_pEffect2->SetMatrix("g_matLightView", &matLightView);
 
-// near/far は“見たい範囲”にできるだけタイトに
-g_pEffect2->SetFloat("g_lightNear", 1.0f);
-g_pEffect2->SetFloat("g_lightFar",  30.0f);  // 50より小
+    // near/far は“見たい範囲”にできるだけタイトに
+    g_pEffect2->SetFloat("g_lightNear", 1.0f);
+    g_pEffect2->SetFloat("g_lightFar",  30.0f);  // 50より小
 
     UINT numPass2 = 0;
     hResult = g_pEffect2->Begin(&numPass2, 0); assert(hResult == S_OK);
