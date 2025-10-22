@@ -211,34 +211,51 @@ float4 PixelShaderWorldPos(
         return float4(0,0,0,0);
     }
 
-    // 3) 5x5 PCF：等重み平均。外れUVサンプルは「影なし = 0」扱い
-    float shadowSum = 0.0f;
+    float shadow = 0.0f;
 
-    // 1テクセルのオフセット
-    float2 duv = float2(g_shadowTexelW, g_shadowTexelH);
-
-    // 中心±2の5x5
-    [unroll]
-    for (int j = -2; j <= 2; ++j)
+    if (true)
     {
-        [unroll]
-        for (int i = -2; i <= 2; ++i)
-        {
-            float2 uvS = uvL + float2(i, j) * duv;
+        // 3) 5x5 PCF：等重み平均。外れUVサンプルは「影なし = 0」扱い
+        float shadowSum = 0.0f;
 
-            // 外れUVは「影なし」= 0 として数えない（= サンプル値 0 扱い）
-            if (any(uvS < 0.0f) || any(uvS > 1.0f)) {
-                // 何もしない（0加算）
-            } else {
-                float depthLightSpace = tex2D(shadowSampler, uvS).r;
-                // 比較（ライト側が小さければ影）
-                shadowSum += (depthLightSpace < (depthViewSpace - g_shadowBias)) ? 1.0f : 0.0f;
+        // 1テクセルのオフセット
+        float2 duv = float2(g_shadowTexelW, g_shadowTexelH);
+
+        // 中心±2の5x5
+        [unroll]
+        for (int j = -2; j <= 2; ++j)
+        {
+            [unroll]
+            for (int i = -2; i <= 2; ++i)
+            {
+                float2 uvS = uvL + float2(i, j) * duv;
+
+                // 外れUVは「影なし」= 0 として数えない（= サンプル値 0 扱い）
+                if (any(uvS < 0.0f) || any(uvS > 1.0f)) {
+                    // 何もしない（0加算）
+                } else {
+                    float depthLightSpace = tex2D(shadowSampler, uvS).r;
+                    // 比較（ライト側が小さければ影）
+                    shadowSum += (depthLightSpace < (depthViewSpace - g_shadowBias)) ? 1.0f : 0.0f;
+                }
             }
         }
-    }
 
-    // 25サンプルの平均（0..1）
-    float shadow = shadowSum / 25.0f;
+        // 25サンプルの平均（0..1）
+        shadow = shadowSum / 25.0f;
+    }
+    else
+    {
+        float depthLightSpace = tex2D(shadowSampler, uvL).r;
+        if (depthLightSpace < (depthViewSpace - g_shadowBias))
+        {
+            shadow = 1.0f;
+        }
+        else
+        {
+            shadow = 0.0f;
+        }
+    }
 
     // 指定：影は RGBA(0,0,0,0.5)、PCF平均なので 0.5 * shadow
     return float4(0.0f, 0.0f, 0.0f, 0.5f * shadow);

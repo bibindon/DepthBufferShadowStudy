@@ -47,6 +47,8 @@ LPDIRECT3DVERTEXDECLARATION9 g_pQuadDecl = NULL;
 // 追加: スプライト
 LPD3DXSPRITE g_pSprite = NULL;
 
+float g_fTime = 0.0f;
+
 struct QuadVertex
 {
     float x, y, z, w; // クリップ空間（-1..1, w=1）
@@ -129,6 +131,7 @@ int WINAPI _tWinMain(_In_ HINSTANCE hInstance,
         {
             Sleep(16);
 
+            g_fTime += 0.015f;
             RenderPass1();
             RenderPass2();
             RenderPass3();
@@ -286,11 +289,19 @@ void InitD3D(HWND hWnd)
                                 &g_pRenderTarget);
     assert(hResult == S_OK);
 
+//    hResult = D3DXCreateTexture(g_pd3dDevice,
+//                                SCREEN_W, SCREEN_H,
+//                                1,
+//                                D3DUSAGE_RENDERTARGET,
+//                                D3DFMT_A16B16G16R16,
+//                                D3DPOOL_DEFAULT,
+//                                &g_pRenderTarget2);
+
     hResult = D3DXCreateTexture(g_pd3dDevice,
                                 SCREEN_W, SCREEN_H,
                                 1,
                                 D3DUSAGE_RENDERTARGET,
-                                D3DFMT_A8R8G8B8,
+                                D3DFMT_R32F,
                                 D3DPOOL_DEFAULT,
                                 &g_pRenderTarget2);
     assert(hResult == S_OK);
@@ -358,14 +369,14 @@ void RenderPass1()
     hResult = g_pd3dDevice->SetRenderTarget(1, rtDummy); assert(hResult == S_OK);
 
     // カメラ行列
-    static float t = 0.0f; t += 0.005f;
+
     D3DXMATRIX matView, matProj, matWVP, matI;
     D3DXMatrixIdentity(&matI);
 
     D3DXMatrixPerspectiveFovLH(&matProj, D3DXToRadian(45.0f),
                                (float)SCREEN_W / SCREEN_H, 1.0f, 50.0f);
 
-    D3DXVECTOR3 eye(10.0f * sinf(t), 5.0f, -10.0f * cosf(t));
+    D3DXVECTOR3 eye(10.0f * sinf(g_fTime), 5.0f, -10.0f * cosf(g_fTime));
     D3DXVECTOR3 at(0,0,0), up(0,1,0);
     D3DXMatrixLookAtLH(&matView, &eye, &at, &up);
 
@@ -453,14 +464,13 @@ void RenderPass2()
 
     hr = g_pd3dDevice->Clear(0,NULL,
                              D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER,
-                             D3DCOLOR_XRGB(0,0,0), 1.0f, 0); assert(hr==S_OK);
+                             D3DCOLOR_RGBA(0,0,0,0), 1.0f, 0); assert(hr==S_OK);
 
     // カメラ行列（RenderPass1 と同じ式）
-    static float t = 0.0f; t += 0.005f; // 同期させたいなら共有化してください
     D3DXMATRIX V, P, WVP;
     D3DXMatrixPerspectiveFovLH(&P, D3DXToRadian(45.0f),
                                (float)SCREEN_W/SCREEN_H, 1.0f, 50.0f);
-    D3DXVECTOR3 eye(10.0f*sinf(t),5.0f,-10.0f*cosf(t));
+    D3DXVECTOR3 eye(10.0f*sinf(g_fTime),5.0f,-10.0f*cosf(g_fTime));
     D3DXVECTOR3 at(0,0,0), up(0,1,0);
     D3DXMatrixLookAtLH(&V, &eye, &at, &up);
     WVP = I * V * P;
@@ -478,7 +488,7 @@ void RenderPass2()
 
     hr = g_pEffect2->SetFloat("g_shadowTexelW", 1.0f / (float)SCREEN_W); assert(hr==S_OK);
     hr = g_pEffect2->SetFloat("g_shadowTexelH", 1.0f / (float)SCREEN_H); assert(hr==S_OK);
-    hr = g_pEffect2->SetFloat("g_shadowBias",   0.004f);                 assert(hr==S_OK);
+    hr = g_pEffect2->SetFloat("g_shadowBias",   0.002f);                 assert(hr==S_OK);
 
     // TechniqueWorldPos で描く（既存のセットに続けてOK）
     hr = g_pEffect2->SetTechnique("TechniqueWorldPos");             assert(hr==S_OK);
