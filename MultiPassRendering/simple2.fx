@@ -147,40 +147,21 @@ sampler textureSampler2 = sampler_state
     MagFilter = LINEAR;
 };
 
-// ▼ 追加：合成比
-float g_mix = 0.5f;   // 0 = texture1, 1 = texture2
-
-// ▼ そのまま描く（色いじらない）ブリット
-float4 BlitPS(in float4 inPosition : POSITION,
-              in float2 inTexCood  : TEXCOORD0) : COLOR0
-{
-    return tex2D(textureSampler, inTexCood);
-}
-
-technique TechniqueBlit
-{
-    pass P0
-    {
-        CullMode = NONE;
-        VertexShader = compile vs_3_0 VertexShader1(); // 既存のVSを再利用
-        PixelShader  = compile ps_3_0 BlitPS();
-    }
-}
-
 // ▼ 2枚を線形合成
 float4 CompositePS(in float4 inPosition : POSITION,
                    in float2 inTexCood  : TEXCOORD0) : COLOR0
 {
     float4 a = tex2D(textureSampler,  inTexCood);
     float4 b = tex2D(textureSampler2, inTexCood);
-    if (b.a < 0.5)
-    {
-        return a;
-    }
-    else
-    {
-        return float4(a.xyz * 0.5, 1.0);
-    }
+
+    float4 result = float4(0, 0, 0, 0);
+
+    result.rgb = a.rgb * b.a;
+    result = lerp(a, b, b.a);
+
+    result.a = 1.f;
+
+    return result;
 }
 
 technique TechniqueComposite
@@ -219,9 +200,9 @@ float4 PixelShaderWorldPos(
     float depthLightSpace = tex2D(shadowSampler, uvL).r;
 
     // 4) 比較：depthLightSpace < depthViewSpace なら影
-    if (depthLightSpace < depthViewSpace - 0.002)
+    if (depthLightSpace < depthViewSpace - 0.003)
     {
-        return float4(0.0f, 0.0f, 0.0f, 1.0f);
+        return float4(0.0f, 0.0f, 0.0f, 0.5f);
     }
     else
     {

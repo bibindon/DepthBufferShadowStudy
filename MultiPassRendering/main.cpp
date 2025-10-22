@@ -518,7 +518,6 @@ void RenderPass3()
     // texture1=A, texture2=C
     hr = g_pEffect2->SetTexture("texture1", g_pRenderTarget); assert(hr==S_OK);
     hr = g_pEffect2->SetTexture("texture2", g_pPostTexture);  assert(hr==S_OK);
-    hr = g_pEffect2->SetFloat("g_mix", 0.5f);                 assert(hr==S_OK);
     hr = g_pEffect2->CommitChanges();                         assert(hr==S_OK);
 
     DrawFullscreenQuad();
