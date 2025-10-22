@@ -216,7 +216,7 @@ void InitD3D(HWND hWnd)
 
     LPD3DXBUFFER pD3DXMtrlBuffer = NULL;
 
-    hResult = D3DXLoadMeshFromX(_T("cube.x"),
+    hResult = D3DXLoadMeshFromX(_T("monkey.blend.x"),
                                 D3DXMESH_SYSTEMMEM,
                                 g_pd3dDevice,
                                 NULL,
@@ -358,7 +358,7 @@ void RenderPass1()
     hResult = g_pd3dDevice->SetRenderTarget(1, rtDummy); assert(hResult == S_OK);
 
     // カメラ行列
-    static float t = 0.0f; t += 0.025f;
+    static float t = 0.0f; t += 0.005f;
     D3DXMATRIX matView, matProj, matWVP, matI;
     D3DXMatrixIdentity(&matI);
 
@@ -456,7 +456,7 @@ void RenderPass2()
                              D3DCOLOR_XRGB(0,0,0), 1.0f, 0); assert(hr==S_OK);
 
     // カメラ行列（RenderPass1 と同じ式）
-    static float t = 0.0f; t += 0.025f; // 同期させたいなら共有化してください
+    static float t = 0.0f; t += 0.005f; // 同期させたいなら共有化してください
     D3DXMATRIX V, P, WVP;
     D3DXMatrixPerspectiveFovLH(&P, D3DXToRadian(45.0f),
                                (float)SCREEN_W/SCREEN_H, 1.0f, 50.0f);
@@ -527,25 +527,26 @@ void RenderPass3()
     hr = g_pEffect2->End();     assert(hr==S_OK);
 
     // --- デバッグ小窓：B(左上), C(左下) を 1/2 スケールでスプライト表示 ---
-    hr = g_pSprite->Begin(D3DXSPRITE_ALPHABLEND); assert(hr==S_OK);
-
-    D3DXMATRIX m;
-    // 左上 B
+    if (false)
     {
-        D3DXVECTOR2 sc(0.5f, 0.5f), rotCenter(0,0), trans(0.0f, 0.0f);
-        D3DXMatrixTransformation2D(&m, NULL, 0.0f, &sc, &rotCenter, 0.0f, &trans);
-        g_pSprite->SetTransform(&m);
-        hr = g_pSprite->Draw(g_pRenderTarget2, NULL, NULL, NULL, 0xFFFFFFFF); assert(hr==S_OK);
+        hr = g_pSprite->Begin(D3DXSPRITE_ALPHABLEND); assert(hr==S_OK); 
+        D3DXMATRIX m;
+        // 左上 B
+        {
+            D3DXVECTOR2 sc(0.5f, 0.5f), rotCenter(0,0), trans(0.0f, 0.0f);
+            D3DXMatrixTransformation2D(&m, NULL, 0.0f, &sc, &rotCenter, 0.0f, &trans);
+            g_pSprite->SetTransform(&m);
+            hr = g_pSprite->Draw(g_pRenderTarget2, NULL, NULL, NULL, 0xFFFFFFFF); assert(hr==S_OK);
+        }
+        // 左下 C
+        {
+            D3DXVECTOR2 sc(0.5f, 0.5f), rotCenter(0,0), trans(0.0f, SCREEN_H * 0.5f);
+            D3DXMatrixTransformation2D(&m, NULL, 0.0f, &sc, &rotCenter, 0.0f, &trans);
+            g_pSprite->SetTransform(&m);
+            hr = g_pSprite->Draw(g_pPostTexture, NULL, NULL, NULL, 0xFFFFFFFF); assert(hr==S_OK);
+        }
+        hr = g_pSprite->End(); assert(hr==S_OK);
     }
-    // 左下 C
-    {
-        D3DXVECTOR2 sc(0.5f, 0.5f), rotCenter(0,0), trans(0.0f, SCREEN_H * 0.5f);
-        D3DXMatrixTransformation2D(&m, NULL, 0.0f, &sc, &rotCenter, 0.0f, &trans);
-        g_pSprite->SetTransform(&m);
-        hr = g_pSprite->Draw(g_pPostTexture, NULL, NULL, NULL, 0xFFFFFFFF); assert(hr==S_OK);
-    }
-
-    hr = g_pSprite->End(); assert(hr==S_OK);
 
     hr = g_pd3dDevice->EndScene();  assert(hr==S_OK);
     hr = g_pd3dDevice->Present(NULL,NULL,NULL,NULL); assert(hr==S_OK);
