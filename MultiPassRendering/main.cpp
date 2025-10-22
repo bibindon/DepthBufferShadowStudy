@@ -499,81 +499,127 @@ void RenderPass1()
 
 static void RenderPass2()
 {
-    HRESULT hr = E_FAIL;
+    HRESULT hResult = E_FAIL;
 
-    // 出力先を g_pPostTexture に
-    LPDIRECT3DSURFACE9 pOldRT0 = NULL;
-    hr = g_pd3dDevice->GetRenderTarget(0, &pOldRT0); assert(hr == S_OK);
+    LPDIRECT3DSURFACE9 prevRenderTarget0 = NULL;
+    hResult = g_pd3dDevice->GetRenderTarget(0, &prevRenderTarget0);
+    assert(hResult == S_OK);
 
-    LPDIRECT3DSURFACE9 pRTPost = NULL;
-    hr = g_pPostTexture->GetSurfaceLevel(0, &pRTPost); assert(hr == S_OK);
-    hr = g_pd3dDevice->SetRenderTarget(0, pRTPost);    assert(hr == S_OK);
+    LPDIRECT3DSURFACE9 postSurface = NULL;
+    hResult = g_pPostTexture->GetSurfaceLevel(0, &postSurface);
+    assert(hResult == S_OK);
 
-    // 背景を黒、Zは使わない
-    hr = g_pd3dDevice->Clear(0, NULL,
-                             D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
-                             D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0); assert(hr == S_OK);
-    hr = g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, FALSE); assert(hr == S_OK);
+    hResult = g_pd3dDevice->SetRenderTarget(0, postSurface);
+    assert(hResult == S_OK);
 
-    hr = g_pd3dDevice->BeginScene(); assert(hr == S_OK);
+    hResult = g_pd3dDevice->Clear(0,
+                                  NULL,
+                                  D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
+                                  D3DCOLOR_XRGB(0, 0, 0),
+                                  1.0f,
+                                  0);
+    assert(hResult == S_OK);
 
-    // simple2.fx の TechniqueBlit で RT0 をそのままブリット
-    hr = g_pEffect2->SetTechnique("TechniqueBlit");        assert(hr == S_OK);
-    hr = g_pEffect2->Begin(NULL, 0);                       assert(hr == S_OK);
-    hr = g_pEffect2->BeginPass(0);                         assert(hr == S_OK);
+    hResult = g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, FALSE);
+    assert(hResult == S_OK);
 
-    hr = g_pEffect2->SetTexture("texture1", g_pRenderTarget); assert(hr == S_OK);
-    hr = g_pEffect2->CommitChanges();                         assert(hr == S_OK);
+    hResult = g_pd3dDevice->BeginScene();
+    assert(hResult == S_OK);
+
+    //hResult = g_pEffect2->SetTechnique("TechniqueBlit");
+    hResult = g_pEffect2->SetTechnique("Technique1");
+    assert(hResult == S_OK);
+
+    UINT numPass = 0;
+    hResult = g_pEffect2->Begin(&numPass, 0);
+    assert(hResult == S_OK);
+
+    hResult = g_pEffect2->BeginPass(0);
+    assert(hResult == S_OK);
+
+    hResult = g_pEffect2->SetTexture("texture1", g_pRenderTarget);
+    assert(hResult == S_OK);
+
+    hResult = g_pEffect2->CommitChanges();
+    assert(hResult == S_OK);
 
     DrawFullscreenQuad();
 
-    hr = g_pEffect2->EndPass(); assert(hr == S_OK);
-    hr = g_pEffect2->End();     assert(hr == S_OK);
+    hResult = g_pEffect2->EndPass();
+    assert(hResult == S_OK);
 
-    hr = g_pd3dDevice->EndScene(); assert(hr == S_OK);
+    hResult = g_pEffect2->End();
+    assert(hResult == S_OK);
 
-    // 後始末：RT を元に戻す（ここではまだ Present しない）
-    hr = g_pd3dDevice->SetRenderTarget(0, pOldRT0); assert(hr == S_OK);
-    SAFE_RELEASE(pRTPost);
-    SAFE_RELEASE(pOldRT0);
+    hResult = g_pd3dDevice->EndScene();
+    assert(hResult == S_OK);
 
-    // Z を元に戻すのは RenderPass3 の後でも良いが、念のため戻す
-    hr = g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, TRUE); assert(hr == S_OK);
+    hResult = g_pd3dDevice->SetRenderTarget(0, prevRenderTarget0);
+    assert(hResult == S_OK);
+
+    SAFE_RELEASE(postSurface);
+    SAFE_RELEASE(prevRenderTarget0);
+
+    hResult = g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, TRUE);
+    assert(hResult == S_OK);
 }
 
 static void RenderPass3()
 {
-    HRESULT hr = E_FAIL;
+    HRESULT hResult = E_FAIL;
 
-    // バックバッファへ
-    hr = g_pd3dDevice->Clear(0, NULL,
-                             D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
-                             D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0); assert(hr == S_OK);
-    hr = g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, FALSE); assert(hr == S_OK);
+    hResult = g_pd3dDevice->Clear(0,
+                                  NULL,
+                                  D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
+                                  D3DCOLOR_XRGB(0, 0, 0),
+                                  1.0f,
+                                  0);
+    assert(hResult == S_OK);
 
-    hr = g_pd3dDevice->BeginScene(); assert(hr == S_OK);
+    hResult = g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, FALSE);
+    assert(hResult == S_OK);
 
-    // simple2.fx の TechniqueComposite を使って 2枚を合成
-    hr = g_pEffect2->SetTechnique("TechniqueComposite"); assert(hr == S_OK);
+    hResult = g_pd3dDevice->BeginScene();
+    assert(hResult == S_OK);
 
-    hr = g_pEffect2->Begin(NULL, 0);             assert(hr == S_OK);
-    hr = g_pEffect2->BeginPass(0);               assert(hr == S_OK);
+    hResult = g_pEffect2->SetTechnique("TechniqueComposite");
+    assert(hResult == S_OK);
 
-    // A=Post結果, B=ライト深度 （お好みで入替・別の2枚に変更OK）
-    hr = g_pEffect2->SetTexture("texture1", g_pPostTexture);     assert(hr == S_OK);
-    hr = g_pEffect2->SetTexture("texture2", g_pRenderTarget2);   assert(hr == S_OK);
-    hr = g_pEffect2->SetFloat("g_mix", 0.5f);                    assert(hr == S_OK);
-    hr = g_pEffect2->CommitChanges();                            assert(hr == S_OK);
+    UINT numPass = 0;
+    hResult = g_pEffect2->Begin(&numPass, 0);
+    assert(hResult == S_OK);
+
+    hResult = g_pEffect2->BeginPass(0);
+    assert(hResult == S_OK);
+
+    hResult = g_pEffect2->SetTexture("texture1", g_pPostTexture);
+    assert(hResult == S_OK);
+
+    hResult = g_pEffect2->SetTexture("texture2", g_pRenderTarget2);
+    assert(hResult == S_OK);
+
+    hResult = g_pEffect2->SetFloat("g_mix", 0.5f);
+    assert(hResult == S_OK);
+
+    hResult = g_pEffect2->CommitChanges();
+    assert(hResult == S_OK);
 
     DrawFullscreenQuad();
 
-    hr = g_pEffect2->EndPass(); assert(hr == S_OK);
-    hr = g_pEffect2->End();     assert(hr == S_OK);
+    hResult = g_pEffect2->EndPass();
+    assert(hResult == S_OK);
 
-    hr = g_pd3dDevice->EndScene();  assert(hr == S_OK);
-    hr = g_pd3dDevice->Present(NULL, NULL, NULL, NULL); assert(hr == S_OK);
+    hResult = g_pEffect2->End();
+    assert(hResult == S_OK);
 
-    hr = g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, TRUE); assert(hr == S_OK);
+    hResult = g_pd3dDevice->EndScene();
+    assert(hResult == S_OK);
+
+    hResult = g_pd3dDevice->Present(NULL, NULL, NULL, NULL);
+    assert(hResult == S_OK);
+
+    hResult = g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, TRUE);
+    assert(hResult == S_OK);
 }
 
 void DrawFullscreenQuad()
