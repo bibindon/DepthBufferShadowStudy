@@ -15,6 +15,9 @@
 
 #define SAFE_RELEASE(p) { if (p) { (p)->Release(); (p) = NULL; } }
 
+const int SCREEN_W = 1600;
+const int SCREEN_H = 900;
+
 LPDIRECT3D9 g_pD3D = NULL;
 LPDIRECT3DDEVICE9 g_pd3dDevice = NULL;
 LPD3DXFONT g_pFont = NULL;
@@ -86,7 +89,7 @@ int WINAPI _tWinMain(_In_ HINSTANCE hInstance,
     assert(atom != 0);
 
     RECT rect;
-    SetRect(&rect, 0, 0, 640, 480);
+    SetRect(&rect, 0, 0, SCREEN_W, SCREEN_H);
     AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
     rect.right = rect.right - rect.left;
     rect.bottom = rect.bottom - rect.top;
@@ -231,24 +234,8 @@ void InitD3D(HWND hWnd)
 
         if (!pTexPath.empty())
         {
-            bool bUnicode = false;
-#ifdef UNICODE
-            bUnicode = true;
-#endif
-            if (!bUnicode)
-            {
-                hResult = D3DXCreateTextureFromFileA(g_pd3dDevice, pTexPath.c_str(), &g_pTextures[i]);
-                assert(hResult == S_OK);
-            }
-            else
-            {
-                int len = MultiByteToWideChar(CP_ACP, 0, pTexPath.c_str(), -1, nullptr, 0);
-                std::wstring pTexPathW(len, 0);
-                MultiByteToWideChar(CP_ACP, 0, pTexPath.c_str(), -1, &pTexPathW[0], len);
-
-                hResult = D3DXCreateTextureFromFileW(g_pd3dDevice, pTexPathW.c_str(), &g_pTextures[i]);
-                assert(hResult == S_OK);
-            }
+            hResult = D3DXCreateTextureFromFileA(g_pd3dDevice, pTexPath.c_str(), &g_pTextures[i]);
+            assert(hResult == S_OK);
         }
     }
 
@@ -285,7 +272,7 @@ void InitD3D(HWND hWnd)
 
     // === 変更: RT を 2 枚作成（両方 A8R8G8B8） ===
     hResult = D3DXCreateTexture(g_pd3dDevice,
-                                640, 480,
+                                SCREEN_W, SCREEN_H,
                                 1,
                                 D3DUSAGE_RENDERTARGET,
                                 D3DFMT_A8R8G8B8,
@@ -294,7 +281,7 @@ void InitD3D(HWND hWnd)
     assert(hResult == S_OK);
 
     hResult = D3DXCreateTexture(g_pd3dDevice,
-                                640, 480,
+                                SCREEN_W, SCREEN_H,
                                 1,
                                 D3DUSAGE_RENDERTARGET,
                                 D3DFMT_A8R8G8B8,
@@ -344,41 +331,40 @@ void RenderPass1()
 {
     HRESULT hResult = E_FAIL;
 
-    // 既存の RT0 を保存
     LPDIRECT3DSURFACE9 pOldRT0 = NULL;
     hResult = g_pd3dDevice->GetRenderTarget(0, &pOldRT0);
     assert(hResult == S_OK);
 
-    // 2 枚の RT サーフェスを取得
     LPDIRECT3DSURFACE9 pRT0 = NULL;
     LPDIRECT3DSURFACE9 pRT1 = NULL;
     hResult = g_pRenderTarget->GetSurfaceLevel(0, &pRT0);  assert(hResult == S_OK);
     hResult = g_pRenderTarget2->GetSurfaceLevel(0, &pRT1); assert(hResult == S_OK);
 
-    // MRT セット（スロット 0 と 1）
     hResult = g_pd3dDevice->SetRenderTarget(0, pRT0); assert(hResult == S_OK);
     hResult = g_pd3dDevice->SetRenderTarget(1, pRT1); assert(hResult == S_OK);
 
-    static float f = 0.0f;
-    f += 0.025f;
+    static float t = 0.0f;
+    t += 0.025f;
 
-    D3DXMATRIX mat;
-    D3DXMATRIX View, Proj;
+    D3DXMATRIX matCameraWVP;
+    D3DXMATRIX matView, matProj;
 
-    D3DXMatrixPerspectiveFovLH(&Proj,
+    D3DXMatrixPerspectiveFovLH(&matProj,
                                D3DXToRadian(45),
-                               640.0f / 480.0f,
+                               (float)SCREEN_W / SCREEN_H,
                                1.0f,
-                               10000.0f);
+                               50.0f);
 
-    D3DXVECTOR3 eye(10 * sinf(f), 5, -10 * cosf(f));
-    D3DXVECTOR3 at(0, 0, 0);
-    D3DXVECTOR3 up(0, 1, 0);
-    D3DXMatrixLookAtLH(&View, &eye, &at, &up);
-    D3DXMatrixIdentity(&mat);
-    mat = mat * View * Proj;
+    D3DXVECTOR3 cameraEye(10.0f * sinf(t), 5.0f, -10.0f * cosf(t));
+    D3DXVECTOR3 cameraAt(0.0f, 0.0f, 0.0f);
+    D3DXVECTOR3 cameraUp(0.0f, 1.0f, 0.0f);
+    D3DXMatrixLookAtLH(&matView, &cameraEye, &cameraAt, &cameraUp);
 
-    hResult = g_pEffect1->SetMatrix("g_matWorldViewProj", &mat);
+    D3DXMATRIX matIdentity;
+    D3DXMatrixIdentity(&matIdentity);
+    matCameraWVP = matIdentity * matView * matProj;
+
+    hResult = g_pEffect1->SetMatrix("g_matWorldViewProj", &matCameraWVP);
     assert(hResult == S_OK);
 
     hResult = g_pd3dDevice->Clear(0, NULL,
@@ -389,12 +375,10 @@ void RenderPass1()
 
     hResult = g_pd3dDevice->BeginScene(); assert(hResult == S_OK);
 
-    // タイトル
     TCHAR msg[100];
     _tcscpy_s(msg, 100, _T("SSAOに挑戦"));
     TextDraw(g_pFont, msg, 0, 0);
 
-    // === 変更: MRT 用テクニックを使用 ===
     hResult = g_pEffect1->SetTechnique("TechniqueMRT");
     assert(hResult == S_OK);
 
@@ -402,7 +386,6 @@ void RenderPass1()
     hResult = g_pEffect1->Begin(&numPass, 0); assert(hResult == S_OK);
     hResult = g_pEffect1->BeginPass(0);       assert(hResult == S_OK);
 
-    // メッシュ（テクスチャあり）
     hResult = g_pEffect1->SetBool("g_bUseTexture", TRUE); assert(hResult == S_OK);
     for (DWORD i = 0; i < g_dwNumMaterials; i++)
     {
@@ -411,21 +394,79 @@ void RenderPass1()
         hResult = g_pMesh->DrawSubset(i);                              assert(hResult == S_OK);
     }
 
-    // 球（テクスチャなし）
     {
         hResult = g_pEffect1->SetBool("g_bUseTexture", FALSE); assert(hResult == S_OK);
         hResult = g_pEffect1->SetTexture("texture1", NULL);    assert(hResult == S_OK);
         hResult = g_pEffect1->CommitChanges();                 assert(hResult == S_OK);
-        hResult = g_pMeshSphere->DrawSubset(0);                assert(hResult == S_OK);
+//        hResult = g_pMeshSphere->DrawSubset(0);                assert(hResult == S_OK);
     }
 
     hResult = g_pEffect1->EndPass(); assert(hResult == S_OK);
     hResult = g_pEffect1->End();     assert(hResult == S_OK);
+    hResult = g_pd3dDevice->EndScene(); assert(hResult == S_OK);
+
+    /* === ここから追加：ライト視点の深度を g_pRenderTarget2 に描く ===
+       いったん MRT を解除し、RT0 を pRT1（= g_pRenderTarget2）に差し替えて描画します。
+       深度バッファは共有なので、Z を必ずクリアします。 */
+
+    hResult = g_pd3dDevice->SetRenderTarget(1, NULL); assert(hResult == S_OK);
+    hResult = g_pd3dDevice->SetRenderTarget(0, pRT1);  assert(hResult == S_OK);
+
+    hResult = g_pd3dDevice->Clear(0, NULL,
+                                  D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
+                                  D3DCOLOR_XRGB(0, 0, 0),
+                                  1.0f, 0);
+    assert(hResult == S_OK);
+
+    /* ライト行列の設定（適当な位置から原点を見る） */
+    D3DXMATRIX matLightView, matLightProj, matLightWVP;
+
+    D3DXVECTOR3 lightEye(20.0f, 10.0f, -20.0f);
+    D3DXVECTOR3 lightAt(0.0f, 0.0f, 0.0f);
+    D3DXVECTOR3 lightUp(0.0f, 1.0f, 0.0f);
+    D3DXMatrixLookAtLH(&matLightView, &lightEye, &lightAt, &lightUp);
+
+    /* まずは透視投影。平行光なら D3DXMatrixOrthoLH に置き換え可能。 */
+    D3DXMatrixPerspectiveFovLH(&matLightProj,
+                               D3DXToRadian(45.0f),
+                               (float)SCREEN_W / SCREEN_H,
+                               1.0f,
+                               50.0f);
+
+    matLightWVP = matIdentity * matLightView * matLightProj;
+
+    hResult = g_pd3dDevice->BeginScene(); assert(hResult == S_OK);
+
+    hResult = g_pEffect2->SetTechnique("TechniqueDepthFromLight");
+    assert(hResult == S_OK);
+    hResult = g_pEffect2->SetMatrix("g_matWorldViewProj", &matLightWVP);
+    assert(hResult == S_OK);
+
+    // ライト View 行列（既に matLightView を作っている箇所の直後でOK）
+g_pEffect2->SetMatrix("g_matLightView", &matLightView);
+
+// near/far は“見たい範囲”にできるだけタイトに
+g_pEffect2->SetFloat("g_lightNear", 1.0f);
+g_pEffect2->SetFloat("g_lightFar",  30.0f);  // 50より小
+
+    UINT numPass2 = 0;
+    hResult = g_pEffect2->Begin(&numPass2, 0); assert(hResult == S_OK);
+    hResult = g_pEffect2->BeginPass(0);        assert(hResult == S_OK);
+
+    /* メッシュ群をもう一度描く（テクスチャは無視される） */
+    for (DWORD i = 0; i < g_dwNumMaterials; i++)
+    {
+        hResult = g_pMesh->DrawSubset(i); assert(hResult == S_OK);
+    }
+
+//    hResult = g_pMeshSphere->DrawSubset(0); assert(hResult == S_OK);
+
+    hResult = g_pEffect2->EndPass(); assert(hResult == S_OK);
+    hResult = g_pEffect2->End();     assert(hResult == S_OK);
 
     hResult = g_pd3dDevice->EndScene(); assert(hResult == S_OK);
 
-    // MRT を解除してバックバッファへ戻す
-    hResult = g_pd3dDevice->SetRenderTarget(1, NULL);   assert(hResult == S_OK);
+    /* 後片付け：バックバッファへ戻す */
     hResult = g_pd3dDevice->SetRenderTarget(0, pOldRT0); assert(hResult == S_OK);
 
     SAFE_RELEASE(pRT0);
@@ -493,8 +534,8 @@ void DrawFullscreenQuad()
 {
     QuadVertex v[4] { };
 
-    float du = 0.5f / 640.f;
-    float dv = 0.5f / 480.f;
+    float du = 0.5f / (float)SCREEN_W;
+    float dv = 0.5f / (float)SCREEN_H;
 
     v[0].x = -1.0f; v[0].y = -1.0f; v[0].z = 0.0f; v[0].w = 1.0f; v[0].u = 0.0f + du; v[0].v = 1.0f - dv;
     v[1].x = -1.0f; v[1].y = 1.0f; v[1].z = 0.0f; v[1].w = 1.0f; v[1].u = 0.0f + du; v[1].v = 0.0f + dv;

@@ -62,3 +62,4 @@ technique TechniqueMRT
         PixelShader = compile ps_3_0 PixelShaderMRT();
     }
 }
+
