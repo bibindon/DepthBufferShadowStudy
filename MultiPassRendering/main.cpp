@@ -446,7 +446,7 @@ void RenderPass2()
     hr = g_pEffect2->End();     assert(hr==S_OK);
     hr = g_pd3dDevice->EndScene(); assert(hr==S_OK);
 
-    // ====== (2) カメラから見た描画を Texture C（ワールド座標RGB）に ======
+    // ====== (2) カメラから見た描画を Texture C に（シャドウ比較用の定数/テクスチャをセット） ======
     LPDIRECT3DSURFACE9 rtC = NULL;
     hr = g_pPostTexture->GetSurfaceLevel(0, &rtC); assert(hr==S_OK);
     hr = g_pd3dDevice->SetRenderTarget(0, rtC);    assert(hr==S_OK);
@@ -465,28 +465,38 @@ void RenderPass2()
     D3DXMatrixLookAtLH(&V, &eye, &at, &up);
     WVP = I * V * P;
 
-    // simple2.fx の「ワールド座標をRGBで吐く」テクニック
-    hr = g_pd3dDevice->BeginScene(); assert(hr==S_OK);
-    hr = g_pEffect2->SetTechnique("TechniqueWorldPos");             assert(hr==S_OK);
-    hr = g_pEffect2->SetMatrix("g_matWorld", &I);                   assert(hr==S_OK);
-    hr = g_pEffect2->SetMatrix("g_matWorldViewProj", &WVP);         assert(hr==S_OK);
     hr = g_pEffect2->SetFloat("g_worldVisScale", 0.02f);            assert(hr==S_OK);
 
-    np=0; hr = g_pEffect2->Begin(&np,0); assert(hr==S_OK);
-    hr = g_pEffect2->BeginPass(0);       assert(hr==S_OK);
-    for (DWORD i=0;i<g_dwNumMaterials;i++)
+    hr = g_pd3dDevice->BeginScene(); assert(hr==S_OK);
+
+    // ★ 追加：PixelShaderWorldPos で使うライト側の行列/パラメータ/テクスチャをセット
+    hr = g_pEffect2->SetMatrix("g_matLightViewProj", &LWVP);   assert(hr==S_OK);
+    hr = g_pEffect2->SetMatrix("g_matLightView",     &Lview);  assert(hr==S_OK);
+    hr = g_pEffect2->SetFloat ("g_lightNear",        lNear);   assert(hr==S_OK);
+    hr = g_pEffect2->SetFloat ("g_lightFar",         lFar);    assert(hr==S_OK);
+    hr = g_pEffect2->SetTexture("textureShadow",     g_pRenderTarget2); assert(hr==S_OK);
+
+    // TechniqueWorldPos で描く（既存のセットに続けてOK）
+    hr = g_pEffect2->SetTechnique("TechniqueWorldPos");             assert(hr==S_OK);
+    hr = g_pEffect2->SetMatrix  ("g_matWorld", &I);                 assert(hr==S_OK);
+    hr = g_pEffect2->SetMatrix  ("g_matWorldViewProj", &WVP);       assert(hr==S_OK);
+
+    hr = g_pEffect2->Begin(&np,0); assert(hr==S_OK);
+    hr = g_pEffect2->BeginPass(0);  assert(hr==S_OK);
+    for (DWORD i=0; i<g_dwNumMaterials; ++i)
     {
         hr = g_pMesh->DrawSubset(i); assert(hr==S_OK);
     }
     hr = g_pEffect2->EndPass(); assert(hr==S_OK);
     hr = g_pEffect2->End();     assert(hr==S_OK);
+
     hr = g_pd3dDevice->EndScene(); assert(hr==S_OK);
 
-    // 後片付け
+    // 後片付け（既存のまま）
     hr = g_pd3dDevice->SetRenderTarget(0, oldRT); assert(hr==S_OK);
-    SAFE_RELEASE(rtB);
     SAFE_RELEASE(rtC);
     SAFE_RELEASE(oldRT);
+
 }
 
 void RenderPass3()

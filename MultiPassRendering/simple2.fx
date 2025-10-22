@@ -5,6 +5,21 @@ float4x4 g_matLightView;
 float    g_lightNear = 1.0f;
 float    g_lightFar  = 30.0f;   // まずはタイトに
 
+// ★ 追加：ライトの ViewProj（ライトでBを作ったときの行列そのもの）
+float4x4 g_matLightViewProj;
+
+// ★ 追加：シャドウ（= テクスチャB）を受け取る
+texture textureShadow;
+sampler shadowSampler = sampler_state
+{
+    Texture   = (textureShadow);
+    MinFilter = POINT;
+    MagFilter = POINT;
+    MipFilter = NONE;
+    AddressU  = CLAMP;
+    AddressV  = CLAMP;
+};
+
 float3 g_ambient = { 0.3f, 0.3f, 0.3f };
 
 bool g_bUseTexture = true;
@@ -158,7 +173,14 @@ float4 CompositePS(in float4 inPosition : POSITION,
 {
     float4 a = tex2D(textureSampler,  inTexCood);
     float4 b = tex2D(textureSampler2, inTexCood);
-    return lerp(a, b, g_mix);
+    if (b.a < 0.5)
+    {
+        return a;
+    }
+    else
+    {
+        return float4(a.xyz * 0.5, 1.0);
+    }
 }
 
 technique TechniqueComposite
@@ -176,21 +198,44 @@ technique TechniqueComposite
 // 追加パラメータ（可視化スケール）
 float g_worldVisScale = 0.02f;
 
-// 既存の VertexShaderWS から worldPos を受け取り、RGB=XYZ で出力
+// 既存: ワールド座標可視化のテクニックを「シャドウ判定出力」に改造
 float4 PixelShaderWorldPos(
     in float4 posCS     : POSITION0,
     in float2 uv        : TEXCOORD0,
     in float3 worldPos  : TEXCOORD1) : COLOR0
 {
-    float3 enc = worldPos * g_worldVisScale + 0.5f; // [-S..S] → [0..1]
-    return float4(saturate(enc), 1.0f);
+    // 1) ライトView空間の z を near..far で正規化 → depthViewSpace
+    float4 posLV = mul(float4(worldPos, 1.0f), g_matLightView);
+    float  depthViewSpace = (posLV.z - g_lightNear) / (g_lightFar - g_lightNear);
+    depthViewSpace = saturate(depthViewSpace);
+
+    // 2) ライトのクリップ→NDC→UV（Yは上下反転）
+    float4 clipL = mul(float4(worldPos, 1.0f), g_matLightViewProj);
+    float2 ndc   = clipL.xy / clipL.w;                    // [-1,1]
+    float2 uvL   = ndc * float2(0.5f, -0.5f) + 0.5f;      // [0,1] へ
+    uvL = saturate(uvL);                                   // 念のため枠外はクランプ
+
+    // 3) テクスチャB（ライトから見た深度可視化）をサンプル → depthLightSpace
+    float depthLightSpace = tex2D(shadowSampler, uvL).r;
+
+    // 4) 比較：depthLightSpace < depthViewSpace なら影
+    if (depthLightSpace < depthViewSpace - 0.002)
+    {
+        return float4(0.0f, 0.0f, 0.0f, 1.0f);
+    }
+    else
+    {
+        return float4(0.0f, 0.0f, 0.0f, 0.0f);
+    }
 }
 
 technique TechniqueWorldPos
 {
     pass P0
     {
-        CullMode = NONE;
+        CullMode    = NONE;
+        ZEnable     = TRUE;
+        ZWriteEnable= TRUE;
         VertexShader = compile vs_3_0 VertexShaderWS();
         PixelShader  = compile ps_3_0 PixelShaderWorldPos();
     }
