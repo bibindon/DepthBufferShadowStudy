@@ -40,6 +40,7 @@ LPDIRECT3DTEXTURE9 g_pRenderTarget2 = NULL;
 // グローバル
 LPDIRECT3DTEXTURE9 g_pPostTexture = NULL;
 
+LPDIRECT3DSURFACE9 g_pShadowZ = NULL;
 
 // フルスクリーンクアッド用
 LPDIRECT3DVERTEXDECLARATION9 g_pQuadDecl = NULL;
@@ -63,7 +64,7 @@ static void Cleanup();
 static void RenderPass1();
 static void RenderPass2();
 static void RenderPass3();
-static void DrawFullscreenQuad();
+static void DrawFullscreenQuad(const int W = SCREEN_W, const int H = SCREEN_H);
 
 LRESULT WINAPI MsgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -290,22 +291,35 @@ void InitD3D(HWND hWnd)
                                 &g_pRenderTarget);
     assert(hResult == S_OK);
 
-    hResult = D3DXCreateTexture(g_pd3dDevice,
-                                SCREEN_W, SCREEN_H,
-                                1,
-                                D3DUSAGE_RENDERTARGET,
-                                D3DFMT_A16B16G16R16,
-                                D3DPOOL_DEFAULT,
-                                &g_pRenderTarget2);
-
 //    hResult = D3DXCreateTexture(g_pd3dDevice,
 //                                SCREEN_W, SCREEN_H,
 //                                1,
 //                                D3DUSAGE_RENDERTARGET,
-//                                D3DFMT_R32F,
+//                                D3DFMT_A16B16G16R16,
 //                                D3DPOOL_DEFAULT,
 //                                &g_pRenderTarget2);
+
+    hResult = D3DXCreateTexture(g_pd3dDevice,
+                                SCREEN_W*2, SCREEN_H*2,
+                                1,
+                                D3DUSAGE_RENDERTARGET,
+                                D3DFMT_R32F,
+                                D3DPOOL_DEFAULT,
+                                &g_pRenderTarget2);
     assert(hResult == S_OK);
+
+    {
+        D3DSURFACE_DESC bdesc{};
+        g_pRenderTarget2->GetLevelDesc(0, &bdesc);
+
+        // 影用の深度ステンシル（サイズをRT2に合わせる）
+        HRESULT hr = g_pd3dDevice->CreateDepthStencilSurface(
+            bdesc.Width, bdesc.Height,
+            D3DFMT_D24X8,                     // 好みで D16 でもOK
+            D3DMULTISAMPLE_NONE, 0, TRUE,
+            &g_pShadowZ, NULL);
+        assert(hr == S_OK);
+    }
 
     hResult = D3DXCreateTexture(g_pd3dDevice,
                             SCREEN_W, SCREEN_H,
@@ -366,7 +380,7 @@ void RenderPass1()
     hr = g_pRenderTarget2->GetSurfaceLevel(0, &rtDummy);   assert(hr == S_OK);
 
     hr = g_pd3dDevice->SetRenderTarget(0, rtA);            assert(hr == S_OK);
-    hr = g_pd3dDevice->SetRenderTarget(1, rtDummy);        assert(hr == S_OK);
+    hr = g_pd3dDevice->SetRenderTarget(1, NULL);        assert(hr == S_OK);
 
     // カメラ行列（V/P）
     D3DXMATRIX V, P;
@@ -429,11 +443,29 @@ void RenderPass2()
 
     // ====== (1) Light から見た深度を Texture B に可視化 ======
     LPDIRECT3DSURFACE9 oldRT0 = NULL;
+    LPDIRECT3DSURFACE9 oldZ = NULL;
+
     hr = g_pd3dDevice->GetRenderTarget(0, &oldRT0);          assert(hr == S_OK);
+    g_pd3dDevice->GetDepthStencilSurface(&oldZ);
 
     LPDIRECT3DSURFACE9 rtB = NULL;
     hr = g_pRenderTarget2->GetSurfaceLevel(0, &rtB);         assert(hr == S_OK);
     hr = g_pd3dDevice->SetRenderTarget(0, rtB);              assert(hr == S_OK);
+    g_pd3dDevice->SetDepthStencilSurface(g_pShadowZ);
+
+    // ★ Viewport を B のサイズに変更（Clear の前！）
+    D3DSURFACE_DESC bdesc{};
+    g_pRenderTarget2->GetLevelDesc(0, &bdesc);
+
+    D3DVIEWPORT9 oldVP{};
+    g_pd3dDevice->GetViewport(&oldVP);
+
+    D3DVIEWPORT9 vpB{};
+    vpB.X = 0; vpB.Y = 0;
+    vpB.Width  = bdesc.Width;
+    vpB.Height = bdesc.Height;
+    vpB.MinZ = 0.0f; vpB.MaxZ = 1.0f;
+    g_pd3dDevice->SetViewport(&vpB);
 
     // 影用の未描画 = 無限遠にしたいので白（=1.0）でクリア
     hr = g_pd3dDevice->Clear(0, NULL,
@@ -445,11 +477,9 @@ void RenderPass2()
     D3DXVECTOR3 leye(40, 50, -40), lat(0,0,0), lup(0,1,0);
     D3DXMatrixLookAtLH(&Lview, &leye, &lat, &lup);
 
-    float lNear = 40.0f, lFar = 120.0f;
-    float oW = 50.0f,  oH = 50.0f;   // 5x5 * 10 間隔 + 余白
+    float lNear = 10.0f, lFar = 200.0f;
+    float oW = 100.0f,  oH = 100.0f;   // 5x5 * 10 間隔 + 余白
     D3DXMatrixOrthoLH(&Lproj, oW, oH, lNear, lFar);
-//    D3DXMatrixPerspectiveFovLH(&Lproj, D3DXToRadian(45.0f),
-//                               (float)SCREEN_W/SCREEN_H, 1.0f, 100.0f);
 
     hr = g_pd3dDevice->BeginScene();                            assert(hr == S_OK);
 
@@ -484,11 +514,21 @@ void RenderPass2()
     hr = g_pEffect2->EndPass();                                assert(hr == S_OK);
     hr = g_pEffect2->End();                                    assert(hr == S_OK);
     hr = g_pd3dDevice->EndScene();                             assert(hr == S_OK);
+    
+    g_pd3dDevice->SetDepthStencilSurface(oldZ);
 
     // ====== (2) カメラから見た描画を Texture C に（シャドウ比較込み） ======
     LPDIRECT3DSURFACE9 rtC = NULL;
     hr = g_pPostTexture->GetSurfaceLevel(0, &rtC);            assert(hr == S_OK);
     hr = g_pd3dDevice->SetRenderTarget(0, rtC);               assert(hr == S_OK);
+
+    // ★ 画面サイズに戻す（SCREEN_W×SCREEN_H）
+    D3DVIEWPORT9 vpC{};
+    vpC.X = 0; vpC.Y = 0;
+    vpC.Width  = SCREEN_W;
+    vpC.Height = SCREEN_H;
+    vpC.MinZ = 0.0f; vpC.MaxZ = 1.0f;
+    g_pd3dDevice->SetViewport(&vpC);
 
     hr = g_pd3dDevice->Clear(0, NULL,
                              D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
@@ -585,13 +625,13 @@ void RenderPass3()
     hr = g_pEffect2->End();     assert(hr==S_OK);
 
     // --- デバッグ小窓：B(左上), C(左下) を 1/2 スケールでスプライト表示 ---
-    if (true)
+    if (false)
     {
         hr = g_pSprite->Begin(D3DXSPRITE_ALPHABLEND); assert(hr==S_OK); 
         D3DXMATRIX m;
         // 左上 B
         {
-            D3DXVECTOR2 sc(0.5f, 0.5f), rotCenter(0,0), trans(0.0f, 0.0f);
+            D3DXVECTOR2 sc(0.25f, 0.25f), rotCenter(0,0), trans(0.0f, 0.0f);
             D3DXMatrixTransformation2D(&m, NULL, 0.0f, &sc, &rotCenter, 0.0f, &trans);
             g_pSprite->SetTransform(&m);
             hr = g_pSprite->Draw(g_pRenderTarget2, NULL, NULL, NULL, 0xFFFFFFFF); assert(hr==S_OK);
@@ -612,12 +652,12 @@ void RenderPass3()
     hr = g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, TRUE); assert(hr==S_OK);
 }
 
-void DrawFullscreenQuad()
+void DrawFullscreenQuad(const int W, const int H)
 {
     QuadVertex v[4] { };
 
-    float du = 0.5f / (float)SCREEN_W;
-    float dv = 0.5f / (float)SCREEN_H;
+    float du = 0.5f / (float)W;
+    float dv = 0.5f / (float)H;
 
     v[0].x = -1.0f; v[0].y = -1.0f; v[0].z = 0.0f; v[0].w = 1.0f; v[0].u = 0.0f + du; v[0].v = 1.0f - dv;
     v[1].x = -1.0f; v[1].y = 1.0f; v[1].z = 0.0f; v[1].w = 1.0f; v[1].u = 0.0f + du; v[1].v = 0.0f + dv;

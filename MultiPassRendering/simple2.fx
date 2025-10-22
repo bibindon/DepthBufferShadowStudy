@@ -183,9 +183,6 @@ technique TechniqueComposite
     }
 }
 
-// 追加パラメータ（可視化スケール）
-float g_worldVisScale = 0.02f;
-
 float4 PixelShaderWorldPos(
     in float4 posCS     : POSITION0,
     in float2 uv        : TEXCOORD0,
@@ -209,13 +206,14 @@ float4 PixelShaderWorldPos(
     uvL += float2(0.5f * g_shadowTexelW, 0.5f * g_shadowTexelH);
 
     // ベースUVが枠外なら「影なし」
-    if (any(uvL < 0.0f) || any(uvL > 1.0f)) {
+    if (any(uvL < 0.0f) || any(uvL > 1.0f))
+    {
         return float4(0,0,0,0);
     }
 
     float shadow = 0.0f;
 
-    if (true)
+    if (false)
     {
         // 3) 5x5 PCF：等重み平均。外れUVサンプルは「影なし = 0」扱い
         float shadowSum = 0.0f;
