@@ -530,8 +530,8 @@ void RenderPass2()
         hr = g_fxDepthBufferShadow->SetFloat ("g_lightFar", fLightFar);
         assert(hr == S_OK);
 
-        UINT np = 0;
-        hr = g_fxDepthBufferShadow->Begin(&np, 0);
+        UINT nPassNum = 0;
+        hr = g_fxDepthBufferShadow->Begin(&nPassNum, 0);
         assert(hr == S_OK);
 
         hr = g_fxDepthBufferShadow->BeginPass(0);
@@ -629,14 +629,12 @@ void RenderPass2()
 
         D3DXMatrixLookAtLH(&mView, &vEye, &vAt, &vUp);
 
-        // シャドウ比較に必要な定数をセット
-        //    ※ g_matLightViewProj は View*Proj（World を含めない！）
-        D3DXMATRIX LVP = mLightView * mLightProj;
+        D3DXMATRIX mLightViewProj = mLightView * mLightProj;
 
         hr = g_pd3dDevice->BeginScene();
         assert(hr == S_OK);
 
-        hr = g_fxDepthBufferShadow->SetMatrix("g_matLightViewProj", &LVP);
+        hr = g_fxDepthBufferShadow->SetMatrix("g_matLightViewProj", &mLightViewProj);
         assert(hr == S_OK);
 
         hr = g_fxDepthBufferShadow->SetMatrix("g_matLightView", &mLightView);
@@ -648,31 +646,29 @@ void RenderPass2()
         hr = g_fxDepthBufferShadow->SetFloat("g_lightFar", fLightFar);
         assert(hr == S_OK);
 
-        hr = g_fxDepthBufferShadow->SetTexture("textureShadow", g_texRenderTargetLightZ);
+        hr = g_fxDepthBufferShadow->SetTexture("g_texLightZ", g_texRenderTargetLightZ);
         assert(hr == S_OK);
 
-        // PCF のテクセルサイズ（B の実サイズから算出）
-        D3DSURFACE_DESC descB{};
+        D3DSURFACE_DESC descLightZ{};
 
-        hr = g_texRenderTargetLightZ->GetLevelDesc(0, &descB);
+        hr = g_texRenderTargetLightZ->GetLevelDesc(0, &descLightZ);
         assert(hr == S_OK);
 
-        hr = g_fxDepthBufferShadow->SetFloat("g_shadowTexelW", 1.0f / (float)descB.Width);
+        hr = g_fxDepthBufferShadow->SetFloat("g_shadowTexelW", 1.0f / (float)descLightZ.Width);
         assert(hr == S_OK);
 
-        hr = g_fxDepthBufferShadow->SetFloat("g_shadowTexelH", 1.0f / (float)descB.Height);
+        hr = g_fxDepthBufferShadow->SetFloat("g_shadowTexelH", 1.0f / (float)descLightZ.Height);
         assert(hr == S_OK);
 
         hr = g_fxDepthBufferShadow->SetFloat("g_shadowBias",   0.002f);
         assert(hr == S_OK);
 
-        // TechniqueWorldPos（worldPos を使って影付け）
-        hr = g_fxDepthBufferShadow->SetTechnique("TechniqueWorldPos");
+        hr = g_fxDepthBufferShadow->SetTechnique("TechniqueWriteShadow");
         assert(hr == S_OK);
 
-        UINT np2 = 0;
+        UINT nPassNum = 0;
 
-        hr = g_fxDepthBufferShadow->Begin(&np2, 0);
+        hr = g_fxDepthBufferShadow->Begin(&nPassNum, 0);
         assert(hr == S_OK);
 
         hr = g_fxDepthBufferShadow->BeginPass(0);
@@ -683,18 +679,19 @@ void RenderPass2()
             int gx = idx % 5 - 2;
             int gz = idx / 5 - 2;
 
-            D3DXMATRIX W, WVP;
-            D3DXMatrixTranslation(&W,
+            D3DXMATRIX mWorld;
+            D3DXMATRIX mWorldViewProj;
+            D3DXMatrixTranslation(&mWorld,
                                   gx * SPACING,
                                   0.0f,
                                   gz * SPACING);
 
-            WVP = W * mView * mProj;
+            mWorldViewProj = mWorld * mView * mProj;
 
-            hr = g_fxDepthBufferShadow->SetMatrix("g_matWorld", &W);
+            hr = g_fxDepthBufferShadow->SetMatrix("g_matWorld", &mWorld);
             assert(hr == S_OK);
 
-            hr = g_fxDepthBufferShadow->SetMatrix("g_matWorldViewProj", &WVP);
+            hr = g_fxDepthBufferShadow->SetMatrix("g_matWorldViewProj", &mWorldViewProj);
             assert(hr == S_OK);
 
             hr = g_fxDepthBufferShadow->CommitChanges();

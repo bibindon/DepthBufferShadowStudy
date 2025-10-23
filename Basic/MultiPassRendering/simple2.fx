@@ -10,12 +10,20 @@ float4x4 g_matLightViewProj;
 
 float g_shadowTexelW;   // = 1.0 / shadowMapWidth
 float g_shadowTexelH;   // = 1.0 / shadowMapHeight
-float g_shadowBias;     // 例: 0.002～0.005 で調整
 
-texture textureShadow;
-sampler shadowSampler = sampler_state
+// 影の端に表示されるギザギザを抑制。0.002～0.005 で調整
+float g_shadowBias;
+
+// 影の濃さ(0 ~ 1)
+float g_shadowIntensity;
+
+// 影のボケ具合(奇数)
+float g_shadowBlur;
+
+texture g_texLightZ;
+sampler samplerLightZ = sampler_state
 {
-    Texture   = (textureShadow);
+    Texture   = (g_texLightZ);
     MinFilter = POINT;
     MagFilter = POINT;
     MipFilter = NONE;
@@ -40,42 +48,44 @@ sampler samplerShadow = sampler_state
     MagFilter = LINEAR;
 };
 
+// 変数名の末尾のOSはローカル座標の意味
+
 //-------------------------------------------------------------------------
 // Technique 1
 //-------------------------------------------------------------------------
 
 struct VSInDepth
 {
-    float4 positionOS : POSITION0;
+    float4 vPosOS  : POSITION0;
 };
 
 struct VSOutDepth
 {
-    float4 positionCS : POSITION0;
-    float  depth01    : TEXCOORD0;
+    float4 vPos    : POSITION0;
+    float  fDepth  : TEXCOORD0;
 };
 
-VSOutDepth DepthFromLightVS(VSInDepth vin)
+VSOutDepth VS_DepthFromLight(VSInDepth vin)
 {
     VSOutDepth vout;
 
-    float4 worldPos = mul(vin.positionOS, g_matWorld);           // ★ 追加：OS→WS
-    float4 clipPos  = mul(vin.positionOS, g_matWorldViewProj);   // LWVP はそのまま使う
-    float4 posLV    = mul(worldPos, g_matLightView);             // ★ WS→LightView に修正
+    float4 clipPos  = mul(vin.vPosOS, g_matWorldViewProj);
+    vout.vPos = clipPos;
 
-    // 画面位置（ライトの WVP は既存の g_matWorldViewProj を利用）
-    vout.positionCS = clipPos;
+    float4 worldPos = mul(vin.vPosOS, g_matWorld);
+    float4 posLV    = mul(worldPos, g_matLightView);
+
 
     // 線形深度（ライト View 空間 z を near..far で正規化）
     float  depthLinear = (posLV.z - g_lightNear) / (g_lightFar - g_lightNear);
-    vout.depth01 = saturate(depthLinear);
+    vout.fDepth = saturate(depthLinear);
 
     return vout;
 }
 
-float4 DepthFromLightPS(VSOutDepth pin) : COLOR0
+float4 PS_DepthFromLight(VSOutDepth pin) : COLOR0
 {
-    float d = pin.depth01;
+    float d = pin.fDepth;
     return float4(d, d, d, 1.0f);
 }
 
@@ -83,7 +93,7 @@ float4 DepthFromLightPS(VSOutDepth pin) : COLOR0
 // Technique 2
 //-------------------------------------------------------------------------
 
-void VertexShaderWS(in  float4 inPositionOS  : POSITION,
+void VS_Base(in  float4 inPositionOS  : POSITION,
                     in  float2 inTexCoord0   : TEXCOORD0,
 
                     out float4 outPositionCS : POSITION0,
@@ -95,11 +105,11 @@ void VertexShaderWS(in  float4 inPositionOS  : POSITION,
 
     outTexCoord0  = inTexCoord0;
 
-    float4 positionCS = mul(inPositionOS, g_matWorldViewProj);
-    outPositionCS = positionCS;
+    float4 vPos = mul(inPositionOS, g_matWorldViewProj);
+    outPositionCS = vPos;
 }
 
-float4 PixelShaderWorldPos(in float4 posCS     : POSITION0,
+float4 PS_WriteShadow(in float4 posCS     : POSITION0,
                            in float2 uv        : TEXCOORD0,
                            in float3 worldPos  : TEXCOORD1) : COLOR0
 {
@@ -155,7 +165,7 @@ float4 PixelShaderWorldPos(in float4 posCS     : POSITION0,
                 }
                 else
                 {
-                    float depthLightSpace = tex2D(shadowSampler, uvS).r;
+                    float depthLightSpace = tex2D(samplerLightZ, uvS).r;
                     // 比較（ライト側が小さければ影）
                     if (depthLightSpace < (depthViewSpace - g_shadowBias))
                     {
@@ -170,7 +180,7 @@ float4 PixelShaderWorldPos(in float4 posCS     : POSITION0,
     }
     else
     {
-        float depthLightSpace = tex2D(shadowSampler, uvL).r;
+        float depthLightSpace = tex2D(samplerLightZ, uvL).r;
         if (depthLightSpace < (depthViewSpace - g_shadowBias))
         {
             shadow = 1.0f;
@@ -189,7 +199,7 @@ float4 PixelShaderWorldPos(in float4 posCS     : POSITION0,
 // Technique 3
 //-------------------------------------------------------------------------
 
-void VertexShader1(in  float4 inPosition  : POSITION,
+void VS_Composite(in  float4 inPosition  : POSITION,
                    in  float2 inTexCood   : TEXCOORD0,
 
                    out float4 outPosition : POSITION,
@@ -200,16 +210,16 @@ void VertexShader1(in  float4 inPosition  : POSITION,
 }
 
 // 2枚の画像を線形補間で合成する
-float4 CompositePS(in float4 inPosition : POSITION,
+float4 PS_Composite(in float4 inPosition : POSITION,
                    in float2 inTexCood  : TEXCOORD0) : COLOR0
 {
-    float4 a = tex2D(samplerBase,  inTexCood);
-    float4 b = tex2D(samplerShadow, inTexCood);
+    float4 vBaseColor = tex2D(samplerBase,  inTexCood);
+    float4 vShadowColor = tex2D(samplerShadow, inTexCood);
 
     float4 result = float4(0, 0, 0, 0);
 
-    result.rgb = a.rgb * b.a;
-    result = lerp(a, b, b.a);
+    result.rgb = vBaseColor.rgb * vShadowColor.a;
+    result = lerp(vBaseColor, vShadowColor, vShadowColor.a);
 
     result.a = 1.f;
 
@@ -221,25 +231,18 @@ technique TechniqueDepthFromLight
 {
     pass P0
     {
-        CullMode = NONE;
-        ZEnable = TRUE;
-        ZWriteEnable = TRUE;
-
-        VertexShader = compile vs_3_0 DepthFromLightVS();
-        PixelShader  = compile ps_3_0 DepthFromLightPS();
+        VertexShader = compile vs_3_0 VS_DepthFromLight();
+        PixelShader  = compile ps_3_0 PS_DepthFromLight();
     }
 }
 
 // 光源から見た深度画像とカメラから見たワールド座標を使って、影を描画するテクニック
-technique TechniqueWorldPos
+technique TechniqueWriteShadow
 {
     pass P0
     {
-        CullMode    = NONE;
-        ZEnable     = TRUE;
-        ZWriteEnable= TRUE;
-        VertexShader = compile vs_3_0 VertexShaderWS();
-        PixelShader  = compile ps_3_0 PixelShaderWorldPos();
+        VertexShader = compile vs_3_0 VS_Base();
+        PixelShader  = compile ps_3_0 PS_WriteShadow();
     }
 }
 
@@ -248,11 +251,8 @@ technique TechniqueComposite
 {
     pass P0
     {
-        CullMode = NONE;
-        AlphaBlendEnable = FALSE;
-
-        VertexShader = compile vs_3_0 VertexShader1();
-        PixelShader  = compile ps_3_0 CompositePS();
+        VertexShader = compile vs_3_0 VS_Composite();
+        PixelShader  = compile ps_3_0 PS_Composite();
     }
 }
 

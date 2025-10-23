@@ -89,7 +89,6 @@ technique TechniqueMRT
 {
     pass P0
     {
-        CullMode = NONE;
         VertexShader = compile vs_3_0 VertexShader1();
         PixelShader = compile ps_3_0 PixelShaderMRT();
     }
