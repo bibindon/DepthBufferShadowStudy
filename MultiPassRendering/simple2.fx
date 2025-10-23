@@ -222,7 +222,7 @@ float4 PixelShaderWorldPos(
         float2 duv = float2(g_shadowTexelW, g_shadowTexelH);
 
         // Šï”‚Å‚ ‚é‚±‚Æ
-        const int SIZE = 5;
+        const int SIZE = 3;
 
         // ’†S}2‚Ì5x5
         [unroll]
