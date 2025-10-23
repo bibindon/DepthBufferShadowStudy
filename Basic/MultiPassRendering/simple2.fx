@@ -157,7 +157,7 @@ void PS_WriteShadow(in float4 inPos       : POSITION0,
         return;
     }
 
-    float shadow = 0.0f;
+    float nShadowColor = 0.0f;
 
     if (g_bBlurEnable)
     {
@@ -171,6 +171,8 @@ void PS_WriteShadow(in float4 inPos       : POSITION0,
 
         // 奇数であること
         const int SIZE_MAX = 13;
+
+        int nSumpleNum = 0;
 
         // ボカシのレベルを調節する
         // HLSLではfor文の開始・終了条件に定数しか使えないので
@@ -192,6 +194,8 @@ void PS_WriteShadow(in float4 inPos       : POSITION0,
                 {
                     continue;
                 }
+
+                nSumpleNum++;
 
                 int i2 = i;
                 i2 -= nHalfSize;
@@ -221,23 +225,22 @@ void PS_WriteShadow(in float4 inPos       : POSITION0,
             }
         }
 
-        // サンプルの平均
-        shadow = fShadowSum / pow(g_nBlurSize, 2);
+        nShadowColor = fShadowSum / nSumpleNum;
     }
     else
     {
         float fDepthLightZTexture = tex2D(samplerLightZ, uvLightView).r;
         if (fDepthLightZTexture < (fDepthLightView - g_shadowBias))
         {
-            shadow = 1.0f;
+            nShadowColor = 1.0f;
         }
         else
         {
-            shadow = 0.0f;
+            nShadowColor = 0.0f;
         }
     }
 
-    outColor.a = shadow * g_shadowIntensity;
+    outColor.a = nShadowColor * g_shadowIntensity;
 }
 
 //-------------------------------------------------------------------------
