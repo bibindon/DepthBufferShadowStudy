@@ -174,7 +174,7 @@ void PS_WriteShadow(in float4 inPos       : POSITION0,
         const int SIZE_MAX = 13;
 
         // ボカシのレベルを調節する
-        // HLSLではfor文の開始・終了条件に変数を使えないのでちょっとした小細工が必要
+        // HLSLではfor文の開始・終了条件に定数しか使えないのでちょっとした小細工が必要
         for (int j = -(SIZE_MAX / 2); j <= (SIZE_MAX / 2); ++j)
         {
             int j2 = abs(j);
