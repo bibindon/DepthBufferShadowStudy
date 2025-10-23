@@ -485,12 +485,12 @@ void RenderPass2()
 
     // ===== 近景カスケードの設定（①で使用、③でも同じ値を再使用） =====
     float lNear0 = 1.0f,  lFar0 = 140.0f;
-    float ow0    = 20.0f, oh0   = 20.0f;
+    float ow0    = 10.0f, oh0   = 10.0f;
     D3DXMATRIX Lproj0; D3DXMatrixOrthoLH(&Lproj0, ow0, oh0, lNear0, lFar0);
 
     // ===== 遠景カスケードの設定（②で使用、③でも同じ値を再使用） =====
     float lNear1 = 1.0f,  lFar1 = 300.0f;
-    float ow1    = 140.0f, oh1  = 140.0f;
+    float ow1    = 100.0f, oh1  = 100.0f;
     D3DXMATRIX Lproj1; D3DXMatrixOrthoLH(&Lproj1, ow1, oh1, lNear1, lFar1);
 
     // ==========================================================
@@ -645,7 +645,7 @@ void RenderPass2()
         g_pEffect2->SetFloat("g_texelW1", 1.0f/sd1.Width);
         g_pEffect2->SetFloat("g_texelH1", 1.0f/sd1.Height);
 
-        g_pEffect2->SetFloat("g_shadowBias", 0.008f);
+        g_pEffect2->SetFloat("g_shadowBias", 0.001f);
         g_pEffect2->SetFloat("g_splitZ",     30.0f);
         g_pEffect2->SetFloat("g_blendZ",      0.0f); // 最初は0で切替を確認
 

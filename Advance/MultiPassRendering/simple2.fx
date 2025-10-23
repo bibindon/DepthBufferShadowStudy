@@ -82,21 +82,20 @@ float SampleShadow5x5(
 
     if (any(uv < 0.0f) || any(uv > 1.0f)) return 0.0f;
 
-//    float depthView = (clipL.z - lNear) / (lFar - lNear);
-//    depthView = saturate(depthView);
-//    float depthView = saturate( (clipL.z / clipL.w) * 0.5f + 0.5f );
     float depthView = saturate(clipL.z / clipL.w);
 
     float sum = 0.0f;
-    [unroll] for (int j=-2;j<=2;++j)
-    [unroll] for (int i=-2;i<=2;++i)
+    [unroll] for (int j=-1;j<=1;++j)
     {
-        float2 uvS = uv + float2(i,j) * texelWH;
-        if (any(uvS<0.0f)||any(uvS>1.0f)) continue;
-        float d = tex2D(smp, uvS).r;
-        sum += (d < (depthView - g_shadowBias)) ? 1.0f : 0.0f;
+        [unroll] for (int i=-1;i<=1;++i)
+        {
+            float2 uvS = uv + float2(i,j) * texelWH;
+            if (any(uvS<0.0f)||any(uvS>1.0f)) continue;
+            float d = tex2D(smp, uvS).r;
+            sum += (d < (depthView - g_shadowBias)) ? 1.0f : 0.0f;
+        }
     }
-    return sum / 25.0f;
+    return sum / 9.0f;
 }
 
 //-------------------------------------------------------------------------
