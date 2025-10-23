@@ -755,7 +755,7 @@ void RenderPass3()
     assert(hr == S_OK);
 
     // --- デバッグ小窓：B(左上), C(左下) を 1/2 スケールでスプライト表示 ---
-    if (false)
+    if (true)
     {
         hr = g_pSprite->Begin(D3DXSPRITE_ALPHABLEND);
         assert(hr == S_OK);
