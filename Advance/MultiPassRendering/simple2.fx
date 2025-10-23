@@ -40,63 +40,6 @@ sampler textureSampler2 = sampler_state
     MagFilter = LINEAR;
 };
 
-// --- CSM 追加 ---
-float4x4 g_matView;    // カメラの View（距離判定用）
-
-// 近景(0)／遠景(1) それぞれの LightView*Proj（=LVP）
-float4x4 g_LVP0;
-float4x4 g_LVP1;
-float  g_lNear0, g_lFar0;
-float  g_lNear1, g_lFar1;
-
-texture shadow0;
-texture shadow1;
-
-sampler sShadow0 = sampler_state {
-    Texture=(shadow0); MinFilter=POINT; MagFilter=POINT; MipFilter=NONE; AddressU=CLAMP; AddressV=CLAMP;
-};
-sampler sShadow1 = sampler_state {
-    Texture=(shadow1); MinFilter=POINT; MagFilter=POINT; MipFilter=NONE; AddressU=CLAMP; AddressV=CLAMP;
-};
-
-float g_texelW0, g_texelH0;
-float g_texelW1, g_texelH1;
-
-float g_splitZ  = 30.0f; // カメラ view-space z での分割位置
-float g_blendZ  = 0.0f;  // 継ぎ目フェード幅（0ならブレンド無し）
-
-float SampleShadow5x5(
-    float3 worldPos,
-    float4x4 LVP,
-    sampler2D smp,
-    float2 texelWH,
-    float lNear, float lFar,
-    float bias)
-{
-    float4 clipL = mul(float4(worldPos,1), LVP);
-    if (clipL.w <= 0) return 0.0f;
-
-    float2 ndc = clipL.xy / clipL.w;
-    float2 uv  = ndc * float2(0.5f,-0.5f) + 0.5f;
-    uv += 0.5f * texelWH; // 半テクセル補正
-
-    if (any(uv < 0.0f) || any(uv > 1.0f)) return 0.0f;
-
-    float depthView = (clipL.z - lNear) / (lFar - lNear);
-    depthView = saturate(depthView);
-
-    float sum = 0.0f;
-    [unroll] for (int j=-2;j<=2;++j)
-    [unroll] for (int i=-2;i<=2;++i)
-    {
-        float2 uvS = uv + float2(i,j) * texelWH;
-        if (any(uvS<0.0f)||any(uvS>1.0f)) continue;
-        float d = tex2D(smp, uvS).r;
-        sum += (d < (depthView - g_shadowBias)) ? 1.0f : 0.0f;
-    }
-    return sum / 25.0f;
-}
-
 //-------------------------------------------------------------------------
 // Technique 1
 //-------------------------------------------------------------------------
@@ -156,29 +99,90 @@ void VertexShaderWS(in  float4 inPositionOS  : POSITION,
     outPositionCS = positionCS;
 }
 
-float4 PixelShaderWorldPos(float4 posCS:POSITION0, float2 uv:TEXCOORD0, float3 worldPos:TEXCOORD1) : COLOR0
+float4 PixelShaderWorldPos(in float4 posCS     : POSITION0,
+                           in float2 uv        : TEXCOORD0,
+                           in float3 worldPos  : TEXCOORD1) : COLOR0
 {
-    // 距離でカスケード選択
-    float3 posVS = mul(float4(worldPos,1), g_matView).xyz;
-    float  zView = posVS.z; // LHなら前方が+z
+    // 1) ライトView空間 z を 0..1 に正規化 → depthViewSpace
+    float4 posLV = mul(float4(worldPos, 1.0f), g_matLightView);
+    float  depthViewSpace = (posLV.z - g_lightNear) / (g_lightFar - g_lightNear);
+    depthViewSpace = saturate(depthViewSpace);
 
-    float sh0 = SampleShadow5x5(worldPos, g_LVP0, sShadow0, float2(g_texelW0,g_texelH0), g_lNear0, g_lFar0, g_shadowBias);
-    float sh1 = SampleShadow5x5(worldPos, g_LVP1, sShadow1, float2(g_texelW1,g_texelH1), g_lNear1, g_lFar1, g_shadowBias);
+    // 2) ライトのクリップ→NDC→UV（Y反転）。直交/透視どちらでもOK
+    float4 clipL = mul(float4(worldPos, 1.0f), g_matLightViewProj);
+    // ライトから見て背面や手前（w<=0）は「影なし」扱い
+    if (clipL.w <= 0) {
+        return float4(0,0,0,0);
+    }
+    float2 ndc   = clipL.xy / clipL.w;                // [-1,1]
+    float2 uvL   = ndc * float2(0.5f, -0.5f) + 0.5f;  // [0,1]
 
-    float shadow;
-    if (g_blendZ <= 0.0f)
+    // DX9の半テクセル補正（必要なら）：レンダテクスチャ中心に合わせる
+    uvL += float2(0.5f * g_shadowTexelW, 0.5f * g_shadowTexelH);
+
+    // ベースUVが枠外なら「影なし」
+    if (any(uvL < 0.0f) || any(uvL > 1.0f))
     {
-        shadow = (zView <= g_splitZ) ? sh0 : sh1;      // 二重適用なし
+        return float4(0,0,0,0);
+    }
+
+    float shadow = 0.0f;
+
+    if (true)
+    {
+        // 3) 5x5 PCF：等重み平均。外れUVサンプルは「影なし = 0」扱い
+        float shadowSum = 0.0f;
+
+        // 1テクセルのオフセット
+        float2 duv = float2(g_shadowTexelW, g_shadowTexelH);
+
+        // 奇数であること
+        const int SIZE = 3;
+
+        // 中心±2の5x5
+        [unroll]
+        for (int j = -(SIZE / 2); j <= (SIZE / 2); ++j)
+        {
+            [unroll]
+            for (int i = -(SIZE / 2); i <= (SIZE / 2); ++i)
+            {
+                float2 uvS = uvL + float2(i, j) * duv;
+
+                // 外れUVは「影なし」= 0 として数えない（= サンプル値 0 扱い）
+                if (any(uvS < 0.0f) || any(uvS > 1.0f))
+                {
+                    // 何もしない（0加算）
+                }
+                else
+                {
+                    float depthLightSpace = tex2D(shadowSampler, uvS).r;
+                    // 比較（ライト側が小さければ影）
+                    if (depthLightSpace < (depthViewSpace - g_shadowBias))
+                    {
+                        shadowSum += 1.0f;
+                    }
+                }
+            }
+        }
+
+        // 25サンプルの平均（0..1）
+        shadow = shadowSum / pow(SIZE, 2);
     }
     else
     {
-        float z0 = g_splitZ - 0.5f * g_blendZ;
-        float z1 = g_splitZ + 0.5f * g_blendZ;
-        float w  = saturate((zView - z0) / max(z1 - z0, 1e-4));
-        shadow = lerp(sh0, sh1, w);                    // 境界のみブレンド
+        float depthLightSpace = tex2D(shadowSampler, uvL).r;
+        if (depthLightSpace < (depthViewSpace - g_shadowBias))
+        {
+            shadow = 1.0f;
+        }
+        else
+        {
+            shadow = 0.0f;
+        }
     }
 
-    return float4(0,0,0, 0.5f * shadow);
+    // 指定：影は RGBA(0,0,0,0.5)、PCF平均なので 0.5 * shadow
+    return float4(0.0f, 0.0f, 0.0f, 0.5f * shadow);
 }
 
 //-------------------------------------------------------------------------

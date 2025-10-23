@@ -36,9 +36,6 @@ LPDIRECT3DTEXTURE9 g_pPostTexture = NULL;
 
 LPDIRECT3DSURFACE9 g_pShadowZ = NULL;
 
-LPDIRECT3DTEXTURE9  g_pShadowMap1 = NULL;  // 遠景用
-LPDIRECT3DSURFACE9  g_pShadowZ1   = NULL;  // 遠景用 DS
-
 LPDIRECT3DVERTEXDECLARATION9 g_pQuadDecl = NULL;
 
 // デバッグ確認用
@@ -278,27 +275,6 @@ void InitD3D(HWND hWnd)
                                     &g_pRenderTarget2);
     }
 
-    {
-        HRESULT hr = D3DXCreateTexture(g_pd3dDevice,
-                                       SCREEN_W, SCREEN_H,
-                                       1,
-                                       D3DUSAGE_RENDERTARGET,
-                                       D3DFMT_R16F,        // 近景と同じ
-                                       D3DPOOL_DEFAULT,
-                                       &g_pShadowMap1);
-        assert(hr == S_OK);
-
-        D3DSURFACE_DESC d{};
-        g_pShadowMap1->GetLevelDesc(0, &d);
-
-        hr = g_pd3dDevice->CreateDepthStencilSurface(
-                d.Width, d.Height,
-                D3DFMT_D16,                 // 近景と同じ形式でOK
-                D3DMULTISAMPLE_NONE, 0, TRUE,
-                &g_pShadowZ1, NULL);
-        assert(hr == S_OK);
-    }
-
     assert(hResult == S_OK);
 
     D3DSURFACE_DESC bdesc{};
@@ -475,182 +451,263 @@ void RenderPass2()
 {
     HRESULT hr = E_FAIL;
 
-    // 共通：ライトの View（同じ方向光を共有）
+    // ====== (1) Light から見た深度を Texture B に可視化 ======
+    LPDIRECT3DSURFACE9 oldRT0 = NULL;
+    LPDIRECT3DSURFACE9 oldZ = NULL;
+
+    hr = g_pd3dDevice->GetRenderTarget(0, &oldRT0);
+    assert(hr == S_OK);
+
+    hr = g_pd3dDevice->GetDepthStencilSurface(&oldZ);
+    assert(hr == S_OK);
+
+    LPDIRECT3DSURFACE9 rtB = NULL;
+
+    hr = g_pRenderTarget2->GetSurfaceLevel(0, &rtB);
+    assert(hr == S_OK);
+
+    hr = g_pd3dDevice->SetRenderTarget(0, rtB);
+    assert(hr == S_OK);
+
+    hr = g_pd3dDevice->SetDepthStencilSurface(g_pShadowZ);
+    assert(hr == S_OK);
+
+    // Viewport をテクスチャのサイズに変更
+    // これをしないと一部のエリアにしか描画されない
+    D3DSURFACE_DESC bdesc{};
+    g_pRenderTarget2->GetLevelDesc(0, &bdesc);
+
+    D3DVIEWPORT9 oldVP{};
+    g_pd3dDevice->GetViewport(&oldVP);
+
+    D3DVIEWPORT9 vpB{};
+    vpB.X = 0;
+    vpB.Y = 0;
+    vpB.Width  = bdesc.Width;
+    vpB.Height = bdesc.Height;
+    vpB.MinZ = 0.0f;
+    vpB.MaxZ = 1.0f;
+    g_pd3dDevice->SetViewport(&vpB);
+
+    // 影用の未描画 = 無限遠にしたいので白（=1.0）でクリア
+    hr = g_pd3dDevice->Clear(0, NULL,
+                             D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
+                             D3DCOLOR_XRGB(255, 255, 255),
+                             1.0f,
+                             0);
+    assert(hr == S_OK);
+
     D3DXMATRIX Lview;
+    D3DXMATRIX Lproj;
+    D3DXVECTOR3 leye(40, 50, -40);
+    D3DXVECTOR3 lat(0, 0, 0);
+    D3DXVECTOR3 lup(0, 1, 0);
+    D3DXMatrixLookAtLH(&Lview, &leye, &lat, &lup);
+
+    float lNear = 10.0f;
+    float lFar = 200.0f;
+    float viewWidth = 100.0f;
+    float viewHeight = 100.0f;
+    D3DXMatrixOrthoLH(&Lproj, viewWidth, viewHeight, lNear, lFar);
+
+    hr = g_pd3dDevice->BeginScene();
+    assert(hr == S_OK);
+
+    hr = g_pEffect2->SetTechnique("TechniqueDepthFromLight");
+    assert(hr == S_OK);
+
+    hr = g_pEffect2->SetMatrix("g_matLightView", &Lview);
+    assert(hr == S_OK);
+
+    hr = g_pEffect2->SetFloat ("g_lightNear", lNear);
+    assert(hr == S_OK);
+
+    hr = g_pEffect2->SetFloat ("g_lightFar", lFar);
+    assert(hr == S_OK);
+
+    UINT np = 0;
+    hr = g_pEffect2->Begin(&np, 0);
+    assert(hr == S_OK);
+
+    hr = g_pEffect2->BeginPass(0);
+    assert(hr == S_OK);
+
+    for (int idx = 0; idx < 25; ++idx)
     {
-        D3DXVECTOR3 leye(40, 50, -40), lat(0,0,0), lup(0,1,0);
-        D3DXMatrixLookAtLH(&Lview, &leye, &lat, &lup);
-    }
+        int gx = idx % 5 - 2;
+        int gz = idx / 5 - 2;
 
-    // ===== 近景(0) を g_pRenderTarget2 へ =====
-    {
-        LPDIRECT3DSURFACE9 oldRT0=NULL, oldZ=NULL; g_pd3dDevice->GetRenderTarget(0,&oldRT0); g_pd3dDevice->GetDepthStencilSurface(&oldZ);
+        D3DXMATRIX W, LWVP;
+        D3DXMatrixTranslation(&W, gx * SPACING, 0.0f, gz * SPACING);
+        LWVP = W * Lview * Lproj;
+        
+        hr = g_pEffect2->SetMatrix("g_matWorld", &W);
+        assert(hr == S_OK);
 
-        LPDIRECT3DSURFACE9 rt=NULL; g_pRenderTarget2->GetSurfaceLevel(0,&rt);
-        g_pd3dDevice->SetRenderTarget(0, rt);
+        hr = g_pEffect2->SetMatrix("g_matWorldViewProj", &LWVP);
+        assert(hr == S_OK);
 
-        // DS 切替
-        g_pd3dDevice->SetDepthStencilSurface(g_pShadowZ);
+        hr = g_pEffect2->CommitChanges();
+        assert(hr == S_OK);
 
-        // VP を RT サイズに
-        D3DSURFACE_DESC desc{}; g_pRenderTarget2->GetLevelDesc(0,&desc);
-        D3DVIEWPORT9 vp{0,0,(DWORD)desc.Width,(DWORD)desc.Height,0.0f,1.0f};
-        g_pd3dDevice->SetViewport(&vp);
-
-        // クリア（白=未描画）
-        g_pd3dDevice->Clear(0,NULL, D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(255,255,255),1.0f,0);
-
-        // 近景用の Ortho（狭い）
-        float lNear0=1.0f, lFar0=140.0f;
-        float ow0=60.0f, oh0=60.0f;         // 近景タイト
-        D3DXMATRIX Lproj0; D3DXMatrixOrthoLH(&Lproj0, ow0, oh0, lNear0, lFar0);
-
-        g_pd3dDevice->BeginScene();
-        g_pEffect2->SetTechnique("TechniqueDepthFromLight");
-        g_pEffect2->SetMatrix("g_matLightView", &Lview);
-        g_pEffect2->SetFloat("g_lightNear", lNear0);
-        g_pEffect2->SetFloat("g_lightFar",  lFar0);
-        UINT np=0; g_pEffect2->Begin(&np,0); g_pEffect2->BeginPass(0);
-
-        for (int idx=0; idx<25; ++idx)
+        for (DWORD i = 0; i < g_dwNumMaterials; ++i)
         {
-            int gx=idx%5-2, gz=idx/5-2;
-            D3DXMATRIX W, LWVP; D3DXMatrixTranslation(&W, gx*SPACING, 0, gz*SPACING);
-            LWVP = W * Lview * Lproj0;
-
-            g_pEffect2->SetMatrix("g_matWorld", &W);
-            g_pEffect2->SetMatrix("g_matWorldViewProj", &LWVP);
-            g_pEffect2->CommitChanges();
-
-            for (DWORD i=0;i<g_dwNumMaterials;++i) g_pMesh->DrawSubset(i);
+            hr = g_pMesh->DrawSubset(i);
+            assert(hr == S_OK);
         }
-
-        g_pEffect2->EndPass(); g_pEffect2->End();
-        g_pd3dDevice->EndScene();
-
-        g_pd3dDevice->SetDepthStencilSurface(oldZ);
-        SAFE_RELEASE(rt); SAFE_RELEASE(oldRT0); SAFE_RELEASE(oldZ);
     }
 
-    // ===== 遠景(1) を g_pShadowMap1 へ =====
-    D3DXMATRIX Lproj1;
-    float lNear1, lFar1;
+    hr = g_pEffect2->EndPass();
+    assert(hr == S_OK);
+
+    hr = g_pEffect2->End();
+    assert(hr == S_OK);
+
+    hr = g_pd3dDevice->EndScene();
+    assert(hr == S_OK);
+    
+    g_pd3dDevice->SetDepthStencilSurface(oldZ);
+
+    // ====== (2) カメラから見た描画を Texture C に（シャドウ比較込み） ======
+    LPDIRECT3DSURFACE9 rtC = NULL;
+    hr = g_pPostTexture->GetSurfaceLevel(0, &rtC);
+    assert(hr == S_OK);
+
+    hr = g_pd3dDevice->SetRenderTarget(0, rtC);
+    assert(hr == S_OK);
+
+    D3DVIEWPORT9 vpC{};
+
+    vpC.X = 0;
+    vpC.Y = 0;
+
+    vpC.Width  = SCREEN_W;
+    vpC.Height = SCREEN_H;
+
+    vpC.MinZ = 0.0f;
+    vpC.MaxZ = 1.0f;
+
+    g_pd3dDevice->SetViewport(&vpC);
+
+    hr = g_pd3dDevice->Clear(0, NULL,
+                             D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
+                             D3DCOLOR_ARGB(0, 0, 0, 0),
+                             1.0f,
+                             0);
+    assert(hr == S_OK);
+
+    // カメラ行列（V/P）
+    D3DXMATRIX V, P;
+    D3DXMatrixPerspectiveFovLH(&P,
+                               D3DXToRadian(45.0f),
+                               (float)SCREEN_W / SCREEN_H,
+                               1.0f,
+                               100.0f);
+
+    D3DXVECTOR3 eye(10.0f * sinf(g_fTime),
+                    5.0f,
+                    -10.0f * cosf(g_fTime));
+
+    D3DXVECTOR3 at(0, 0, 0);
+    D3DXVECTOR3 up(0, 1, 0);
+
+    D3DXMatrixLookAtLH(&V, &eye, &at, &up);
+
+    // シャドウ比較に必要な定数をセット
+    //    ※ g_matLightViewProj は View*Proj（World を含めない！）
+    D3DXMATRIX LVP = Lview * Lproj;
+
+    hr = g_pd3dDevice->BeginScene();
+    assert(hr == S_OK);
+
+    hr = g_pEffect2->SetMatrix("g_matLightViewProj", &LVP);
+    assert(hr == S_OK);
+
+    hr = g_pEffect2->SetMatrix("g_matLightView", &Lview);
+    assert(hr == S_OK);
+
+    hr = g_pEffect2->SetFloat("g_lightNear", lNear);
+    assert(hr == S_OK);
+
+    hr = g_pEffect2->SetFloat("g_lightFar", lFar);
+    assert(hr == S_OK);
+
+    hr = g_pEffect2->SetTexture("textureShadow", g_pRenderTarget2);
+    assert(hr == S_OK);
+
+    // PCF のテクセルサイズ（B の実サイズから算出）
+    D3DSURFACE_DESC descB{};
+
+    hr = g_pRenderTarget2->GetLevelDesc(0, &descB);
+    assert(hr == S_OK);
+
+    hr = g_pEffect2->SetFloat("g_shadowTexelW", 1.0f / (float)descB.Width);
+    assert(hr == S_OK);
+
+    hr = g_pEffect2->SetFloat("g_shadowTexelH", 1.0f / (float)descB.Height);
+    assert(hr == S_OK);
+
+    hr = g_pEffect2->SetFloat("g_shadowBias",   0.002f);
+    assert(hr == S_OK);
+
+    // TechniqueWorldPos（worldPos を使って影付け）
+    hr = g_pEffect2->SetTechnique("TechniqueWorldPos");
+    assert(hr == S_OK);
+
+    UINT np2 = 0;
+
+    hr = g_pEffect2->Begin(&np2, 0);
+    assert(hr == S_OK);
+
+    hr = g_pEffect2->BeginPass(0);
+    assert(hr == S_OK);
+
+    for (int idx = 0; idx < 25; ++idx)
     {
-        LPDIRECT3DSURFACE9 oldRT0=NULL, oldZ=NULL; g_pd3dDevice->GetRenderTarget(0,&oldRT0); g_pd3dDevice->GetDepthStencilSurface(&oldZ);
+        int gx = idx % 5 - 2;
+        int gz = idx / 5 - 2;
 
-        LPDIRECT3DSURFACE9 rt=NULL; g_pShadowMap1->GetSurfaceLevel(0,&rt);
-        g_pd3dDevice->SetRenderTarget(0, rt);
+        D3DXMATRIX W, WVP;
+        D3DXMatrixTranslation(&W,
+                              gx * SPACING,
+                              0.0f,
+                              gz * SPACING);
 
-        g_pd3dDevice->SetDepthStencilSurface(g_pShadowZ1);
+        WVP = W * V * P;
 
-        D3DSURFACE_DESC desc{}; g_pShadowMap1->GetLevelDesc(0,&desc);
-        D3DVIEWPORT9 vp{0,0,(DWORD)desc.Width,(DWORD)desc.Height,0.0f,1.0f};
-        g_pd3dDevice->SetViewport(&vp);
+        // ★ VS へ：worldPos を作る W と、描画用の WVP を毎回更新
+        hr = g_pEffect2->SetMatrix("g_matWorld", &W);
+        assert(hr == S_OK);
 
-        g_pd3dDevice->Clear(0,NULL, D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(255,255,255),1.0f,0);
+        hr = g_pEffect2->SetMatrix("g_matWorldViewProj", &WVP);
+        assert(hr == S_OK);
 
-        // 遠景用の Ortho（広い）
-        lNear1=1.0f; lFar1=300.0f;
-        float ow1=140.0f, oh1=140.0f;
-        D3DXMatrixOrthoLH(&Lproj1, ow1, oh1, lNear1, lFar1);
+        hr = g_pEffect2->CommitChanges();
+        assert(hr == S_OK);
 
-        g_pd3dDevice->BeginScene();
-        g_pEffect2->SetTechnique("TechniqueDepthFromLight");
-        g_pEffect2->SetMatrix("g_matLightView", &Lview);
-        g_pEffect2->SetFloat("g_lightNear", lNear1);
-        g_pEffect2->SetFloat("g_lightFar",  lFar1);
-        UINT np=0; g_pEffect2->Begin(&np,0); g_pEffect2->BeginPass(0);
-
-        for (int idx=0; idx<25; ++idx)
+        for (DWORD i = 0; i < g_dwNumMaterials; ++i)
         {
-            int gx=idx%5-2, gz=idx/5-2;
-            D3DXMATRIX W, LWVP; D3DXMatrixTranslation(&W, gx*SPACING, 0, gz*SPACING);
-            LWVP = W * Lview * Lproj1;
-
-            g_pEffect2->SetMatrix("g_matWorld", &W);
-            g_pEffect2->SetMatrix("g_matWorldViewProj", &LWVP);
-            g_pEffect2->CommitChanges();
-
-            for (DWORD i=0;i<g_dwNumMaterials;++i) g_pMesh->DrawSubset(i);
+            hr = g_pMesh->DrawSubset(i);
+            assert(hr == S_OK);
         }
-
-        g_pEffect2->EndPass(); g_pEffect2->End();
-        g_pd3dDevice->EndScene();
-
-        g_pd3dDevice->SetDepthStencilSurface(oldZ);
-        SAFE_RELEASE(rt); SAFE_RELEASE(oldRT0); SAFE_RELEASE(oldZ);
     }
 
-    // ===== カメラからの描画（C）：2マップを使って影付け =====
-    {
-        // C をセット
-        LPDIRECT3DSURFACE9 rtC=NULL; g_pPostTexture->GetSurfaceLevel(0,&rtC);
-        g_pd3dDevice->SetRenderTarget(0, rtC);
-        D3DVIEWPORT9 vpC{0,0,(DWORD)SCREEN_W,(DWORD)SCREEN_H,0.0f,1.0f}; g_pd3dDevice->SetViewport(&vpC);
-        g_pd3dDevice->Clear(0,NULL, D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER, D3DCOLOR_ARGB(0,0,0,0),1.0f,0);
+    hr = g_pEffect2->EndPass();
+    assert(hr == S_OK);
 
-        // カメラ行列
-        D3DXMATRIX V,P;
-        D3DXMatrixPerspectiveFovLH(&P, D3DXToRadian(45.0f), (float)SCREEN_W/SCREEN_H, 1.0f, 100.0f);
-        D3DXVECTOR3 eye(10.0f*sinf(g_fTime),5.0f,-10.0f*cosf(g_fTime)), at(0,0,0), up(0,1,0);
-        D3DXMatrixLookAtLH(&V, &eye, &at, &up);
+    hr = g_pEffect2->End();
+    assert(hr == S_OK);
 
-        // シェーダへ各定数をセット
-        D3DXMATRIX LVP0 = Lview * (D3DXMATRIX)Lproj1; // ダミー初期化回避
-        D3DXMATRIX LVP1 = Lview * Lproj1;
-        // ※ 正しくは直前の値を使う：LVP0 は (Lview * Lproj0)
-        D3DXMATRIX Lproj0; D3DXMatrixOrthoLH(&Lproj0, 60.0f,60.0f, 1.0f,140.0f);
-        LVP0 = Lview * Lproj0;
-        LVP1 = Lview * Lproj1;
+    hr = g_pd3dDevice->EndScene();
+    assert(hr == S_OK);
 
-        g_pd3dDevice->BeginScene();
+    // 後片付け
+    hr = g_pd3dDevice->SetRenderTarget(0, oldRT0);
+    assert(hr == S_OK);
 
-        g_pEffect2->SetTechnique("TechniqueWorldPos");
-
-        g_pEffect2->SetMatrix("g_matView", &V);
-
-        g_pEffect2->SetMatrix("g_LVP0", &LVP0);
-        g_pEffect2->SetMatrix("g_LVP1", &LVP1);
-        g_pEffect2->SetFloat ("g_lNear0", 1.0f);
-        g_pEffect2->SetFloat ("g_lFar0",  140.0f);
-        g_pEffect2->SetFloat ("g_lNear1", 1.0f);
-        g_pEffect2->SetFloat ("g_lFar1",  300.0f);
-
-        g_pEffect2->SetTexture("shadow0", g_pRenderTarget2);
-        g_pEffect2->SetTexture("shadow1", g_pShadowMap1);
-
-        D3DSURFACE_DESC d0{}, d1{};
-        g_pRenderTarget2->GetLevelDesc(0,&d0);
-        g_pShadowMap1->GetLevelDesc(0,&d1);
-        g_pEffect2->SetFloat("g_texelW0", 1.0f/d0.Width);
-        g_pEffect2->SetFloat("g_texelH0", 1.0f/d0.Height);
-        g_pEffect2->SetFloat("g_texelW1", 1.0f/d1.Width);
-        g_pEffect2->SetFloat("g_texelH1", 1.0f/d1.Height);
-
-        g_pEffect2->SetFloat("g_shadowBias", 0.008f);  // 適宜調整
-        g_pEffect2->SetFloat("g_splitZ",     30.0f);   // 距離分割
-        g_pEffect2->SetFloat("g_blendZ",      2.0f);   // 継ぎ目フェード（0でもOK）
-
-        UINT np=0; g_pEffect2->Begin(&np,0); g_pEffect2->BeginPass(0);
-
-        for (int idx=0; idx<25; ++idx)
-        {
-            int gx=idx%5-2, gz=idx/5-2;
-            D3DXMATRIX W, WVP; D3DXMatrixTranslation(&W, gx*SPACING,0, gz*SPACING);
-            WVP = W * V * P;
-
-            g_pEffect2->SetMatrix("g_matWorld", &W);
-            g_pEffect2->SetMatrix("g_matWorldViewProj", &WVP);
-            g_pEffect2->CommitChanges();
-
-            for (DWORD i=0;i<g_dwNumMaterials;++i) g_pMesh->DrawSubset(i);
-        }
-
-        g_pEffect2->EndPass(); g_pEffect2->End();
-        g_pd3dDevice->EndScene();
-
-        SAFE_RELEASE(rtC);
-    }
+    SAFE_RELEASE(rtB);
+    SAFE_RELEASE(rtC);
+    SAFE_RELEASE(oldRT0);
 }
 
 void RenderPass3()
