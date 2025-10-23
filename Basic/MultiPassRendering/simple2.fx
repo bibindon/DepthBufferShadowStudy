@@ -73,8 +73,7 @@ VSOutDepth VS_DepthFromLight(VSInDepth vin)
 {
     VSOutDepth vout;
 
-    float4 clipPos  = mul(vin.vPosOS, g_matWorldViewProj);
-    vout.vPos = clipPos;
+    vout.vPos = mul(vin.vPosOS, g_matWorldViewProj);
 
     float4 inWorldPos = mul(vin.vPosOS, g_matWorld);
     float4 vPosLightView    = mul(inWorldPos, g_matLightView);
@@ -131,12 +130,12 @@ void PS_WriteShadow(in float4 inPos       : POSITION0,
 
     //---------------------------------------------------------
     // カメラから見た各ピクセルのワールド座標の位置を
-    // もし、光源の位置から見たら、UV座標は何？、を求める
+    // もし、光源の位置から見たら、座標はどこ？、を求める
     //---------------------------------------------------------
     float4 vClipLightView = mul(float4(inWorldPos, 1.0f), g_matLightViewProj);
 
     // ライトから見て背面（w <= 0）は「影なし」扱い
-    if (vClipLightView.w <= 0)
+    if (vPosLightView.w <= 0)
     {
         outColor.a = 0.0f;
         return;

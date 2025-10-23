@@ -129,7 +129,7 @@ int WINAPI _tWinMain(_In_ HINSTANCE hInstance,
         }
         else
         {
-            Sleep(16);
+//            Sleep(16);
 
             g_fTime += 0.005f;
 
@@ -394,7 +394,7 @@ void RenderPass1()
                                1.0f,
                                100.0f);
 
-    D3DXVECTOR3 eye(10.0f * sinf(g_fTime), 5.0f, -10.0f * cosf(g_fTime));
+    D3DXVECTOR3 eye(10.0f * sinf(g_fTime), 2.0f, -10.0f * cosf(g_fTime));
     D3DXVECTOR3 at(0, 0, 0);
     D3DXVECTOR3 up(0, 1, 0);
 
@@ -614,7 +614,7 @@ void RenderPass2()
         // カメラ行列
         D3DXMATRIX V,P;
         D3DXMatrixPerspectiveFovLH(&P, D3DXToRadian(45.0f), (float)SCREEN_W/SCREEN_H, 1.0f, 100.0f);
-        D3DXVECTOR3 eye(10.0f*sinf(g_fTime),5.0f,-10.0f*cosf(g_fTime)), at(0,0,0), up(0,1,0);
+        D3DXVECTOR3 eye(10.0f*sinf(g_fTime),2.0f,-10.0f*cosf(g_fTime)), at(0,0,0), up(0,1,0);
         D3DXMatrixLookAtLH(&V, &eye, &at, &up);
 
         // ①/② と **同じ** LVP と near/far をセット（ここがズレると影が出ない）

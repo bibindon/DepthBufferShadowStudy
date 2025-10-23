@@ -17,7 +17,7 @@
 
 const int SCREEN_W = 1600;
 const int SCREEN_H = 900;
-const float SPACING = 15.0f;
+const float SPACING = 10.0f;
 
 LPDIRECT3D9 g_pD3D = NULL;
 LPDIRECT3DDEVICE9 g_pd3dDevice = NULL;
@@ -126,7 +126,7 @@ int WINAPI _tWinMain(_In_ HINSTANCE hInstance,
         }
         else
         {
-            Sleep(16);
+            // Sleep(16);
 
             g_fTime += 0.005f;
 
@@ -337,6 +337,7 @@ void Cleanup()
     SAFE_RELEASE(g_pd3dDevice);
     SAFE_RELEASE(g_pD3D);
 }
+
 void RenderPass1()
 {
     HRESULT hr = E_FAIL;
@@ -363,7 +364,7 @@ void RenderPass1()
     hr = g_pd3dDevice->SetRenderTarget(1, NULL);
     assert(hr == S_OK);
 
-    // カメラ行列（V/P）
+    // カメラ行列
     D3DXMATRIX mView;
     D3DXMATRIX mProj;
     D3DXMatrixPerspectiveFovLH(&mProj,
@@ -378,7 +379,6 @@ void RenderPass1()
 
     D3DXMatrixLookAtLH(&mView, &vEye, &vAt, &vUp);
 
-    // クリア
     hr = g_pd3dDevice->Clear(0, NULL,
                              D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
                              D3DCOLOR_XRGB(100, 100, 100),
@@ -407,7 +407,6 @@ void RenderPass1()
         int gx = idx % 5 - 2;
         int gz = idx / 5 - 2;
 
-        // mWorld と mWorldViewProj を個体ごとにセット
         D3DXMATRIX mWorld;
         D3DXMATRIX mWorldViewProj;
         D3DXMatrixTranslation(&mWorld, gx * SPACING, 0.0f, gz * SPACING);
@@ -486,10 +485,12 @@ void RenderPass2()
         // Viewport をテクスチャのサイズに変更
         // これをしないと一部のエリアにしか描画されない
         D3DSURFACE_DESC descLightZ { };
-        g_texRenderTargetLightZ->GetLevelDesc(0, &descLightZ);
+        hr = g_texRenderTargetLightZ->GetLevelDesc(0, &descLightZ);
+        assert(hr == S_OK);
 
         D3DVIEWPORT9 oldViewPort { };
-        g_pd3dDevice->GetViewport(&oldViewPort);
+        hr = g_pd3dDevice->GetViewport(&oldViewPort);
+        assert(hr == S_OK);
 
         D3DVIEWPORT9 viewPortLightZ{};
         viewPortLightZ.X = 0;
@@ -498,7 +499,9 @@ void RenderPass2()
         viewPortLightZ.Height = descLightZ.Height;
         viewPortLightZ.MinZ = 0.0f;
         viewPortLightZ.MaxZ = 1.0f;
-        g_pd3dDevice->SetViewport(&viewPortLightZ);
+
+        hr = g_pd3dDevice->SetViewport(&viewPortLightZ);
+        assert(hr == S_OK);
 
         hr = g_pd3dDevice->Clear(0, NULL,
                                  D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
@@ -506,13 +509,14 @@ void RenderPass2()
                                  1.0f,
                                  0);
         assert(hr == S_OK);
+
         D3DXVECTOR3 vLightEye(40, 50, -40);
         D3DXVECTOR3 vLightAt(0, 0, 0);
         D3DXVECTOR3 vLightUp(0, 1, 0);
         D3DXMatrixLookAtLH(&mLightView, &vLightEye, &vLightAt, &vLightUp);
 
-        float viewWidth = 100.0f;
-        float viewHeight = 100.0f;
+        float viewWidth = 70.0f;
+        float viewHeight = 70.0f;
         D3DXMatrixOrthoLH(&mLightProj, viewWidth, viewHeight, fLightNear, fLightFar);
 
         hr = g_pd3dDevice->BeginScene();
@@ -545,7 +549,11 @@ void RenderPass2()
             D3DXMATRIX mWorld;
             D3DXMATRIX mWorldViewProjLight;
 
-            D3DXMatrixTranslation(&mWorld, gx * SPACING, 0.0f, gz * SPACING);
+            D3DXMatrixTranslation(&mWorld,
+                                  gx * SPACING,
+                                  0.0f,
+                                  gz * SPACING);
+
             mWorldViewProjLight = mWorld * mLightView * mLightProj;
             
             hr = g_fxDepthBufferShadow->SetMatrix("g_matWorld", &mWorld);
@@ -660,7 +668,7 @@ void RenderPass2()
         hr = g_fxDepthBufferShadow->SetFloat("g_shadowTexelH", 1.0f / (float)descLightZ.Height);
         assert(hr == S_OK);
 
-        hr = g_fxDepthBufferShadow->SetFloat("g_shadowBias",   0.002f);
+        hr = g_fxDepthBufferShadow->SetFloat("g_shadowBias",   0.001f);
         assert(hr == S_OK);
 
         float fTime = 0.f;
@@ -681,9 +689,9 @@ void RenderPass2()
 
         int nBlurSize = 0;
 
-        if (true)
+        if (false)
         {
-            nBlurSize = (int)(g_fTime * 40);
+            nBlurSize = (int)(g_fTime * 10);
             nBlurSize = nBlurSize % 13;
 
             if (nBlurSize % 2 == 0)
