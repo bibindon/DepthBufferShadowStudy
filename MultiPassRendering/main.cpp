@@ -128,7 +128,7 @@ int WINAPI _tWinMain(_In_ HINSTANCE hInstance,
         {
             Sleep(16);
 
-            g_fTime += 0.015f;
+            g_fTime += 0.005f;
 
             RenderPass1();
             RenderPass2();
@@ -413,7 +413,7 @@ void RenderPass1()
 
         for (DWORD i = 0; i < g_dwNumMaterials; ++i)
         {
-            hr = g_pEffect1->SetTexture("texture1", g_pTextures[i]);
+            hr = g_pEffect1->SetTexture("g_textureBase", g_pTextures[i]);
             assert(hr == S_OK);
 
             hr = g_pEffect1->CommitChanges();
