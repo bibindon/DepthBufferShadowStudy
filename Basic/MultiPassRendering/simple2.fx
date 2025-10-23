@@ -1,5 +1,6 @@
 
 
+
 float4x4 g_matWorld;
 float4x4 g_matWorldViewProj;
 
@@ -8,17 +9,19 @@ float    g_lightNear;
 float    g_lightFar;
 float4x4 g_matLightViewProj;
 
-float g_shadowTexelW;   // = 1.0 / shadowMapWidth
-float g_shadowTexelH;   // = 1.0 / shadowMapHeight
+float g_shadowTexelW;
+float g_shadowTexelH;
 
 // 影の端に表示されるギザギザを抑制。0.002～0.005 で調整
 float g_shadowBias;
 
 // 影の濃さ(0 ~ 1)
-float g_shadowIntensity;
+float g_shadowIntensity = 0.5f;
+
+bool g_bBlurEnable = true;
 
 // 影のボケ具合(奇数)
-float g_shadowBlur;
+int g_nBlurSize;
 
 texture g_texLightZ;
 sampler samplerLightZ = sampler_state
@@ -49,6 +52,7 @@ sampler samplerShadow = sampler_state
 };
 
 // 変数名の末尾のOSはローカル座標の意味
+// 変数名の末尾のWSはグローバル座標の意味
 
 //-------------------------------------------------------------------------
 // Technique 1
@@ -72,12 +76,12 @@ VSOutDepth VS_DepthFromLight(VSInDepth vin)
     float4 clipPos  = mul(vin.vPosOS, g_matWorldViewProj);
     vout.vPos = clipPos;
 
-    float4 worldPos = mul(vin.vPosOS, g_matWorld);
-    float4 posLV    = mul(worldPos, g_matLightView);
+    float4 inWorldPos = mul(vin.vPosOS, g_matWorld);
+    float4 vPosLightView    = mul(inWorldPos, g_matLightView);
 
 
     // 線形深度（ライト View 空間 z を near..far で正規化）
-    float  depthLinear = (posLV.z - g_lightNear) / (g_lightFar - g_lightNear);
+    float  depthLinear = (vPosLightView.z - g_lightNear) / (g_lightFar - g_lightNear);
     vout.fDepth = saturate(depthLinear);
 
     return vout;
@@ -93,70 +97,103 @@ float4 PS_DepthFromLight(VSOutDepth pin) : COLOR0
 // Technique 2
 //-------------------------------------------------------------------------
 
-void VS_Base(in  float4 inPositionOS  : POSITION,
-                    in  float2 inTexCoord0   : TEXCOORD0,
+void VS_Base(in  float4 inPosOS     : POSITION,
+             in  float2 inUV        : TEXCOORD0,
 
-                    out float4 outPositionCS : POSITION0,
-                    out float2 outTexCoord0  : TEXCOORD0,
-                    out float3 outWorldPos   : TEXCOORD1)
+             out float4 outPos      : POSITION0,
+             out float2 outUV       : TEXCOORD0,
+             out float3 outWorldPos : TEXCOORD1)
 {
-    float4 positionWS = mul(inPositionOS, g_matWorld);
-    outWorldPos   = positionWS.xyz;
+    float4 vPos = mul(inPosOS, g_matWorldViewProj);
+    outPos = vPos;
+    outUV = inUV;
 
-    outTexCoord0  = inTexCoord0;
-
-    float4 vPos = mul(inPositionOS, g_matWorldViewProj);
-    outPositionCS = vPos;
+    float4 posWS = mul(inPosOS, g_matWorld);
+    outWorldPos = posWS.xyz;
 }
 
-float4 PS_WriteShadow(in float4 posCS     : POSITION0,
-                           in float2 uv        : TEXCOORD0,
-                           in float3 worldPos  : TEXCOORD1) : COLOR0
+void PS_WriteShadow(in float4 inPos       : POSITION0,
+                    in float2 inUV        : TEXCOORD0,
+                    in float3 inWorldPos  : TEXCOORD1,
+
+                    out float4 outColor   : COLOR0)
 {
-    // 1) ライトView空間 z を 0..1 に正規化 → depthViewSpace
-    float4 posLV = mul(float4(worldPos, 1.0f), g_matLightView);
-    float  depthViewSpace = (posLV.z - g_lightNear) / (g_lightFar - g_lightNear);
-    depthViewSpace = saturate(depthViewSpace);
+    outColor = float4(0, 0, 0, 0);
+    
+    //---------------------------------------------------------
+    // カメラから見た各ピクセルのワールド座標の位置を
+    // もし、光源の位置から見たら、深度はいくら？、を求める
+    //---------------------------------------------------------
+    float4 vPosLightView = mul(float4(inWorldPos, 1.0f), g_matLightView);
 
-    // 2) ライトのクリップ→NDC→UV（Y反転）。直交/透視どちらでもOK
-    float4 clipL = mul(float4(worldPos, 1.0f), g_matLightViewProj);
-    // ライトから見て背面や手前（w<=0）は「影なし」扱い
-    if (clipL.w <= 0) {
-        return float4(0,0,0,0);
+    float  fDepthLightView = (vPosLightView.z - g_lightNear) / (g_lightFar - g_lightNear);
+    fDepthLightView = saturate(fDepthLightView);
+
+    //---------------------------------------------------------
+    // カメラから見た各ピクセルのワールド座標の位置を
+    // もし、光源の位置から見たら、UV座標は何？、を求める
+    //---------------------------------------------------------
+    float4 vClipLightView = mul(float4(inWorldPos, 1.0f), g_matLightViewProj);
+
+    // ライトから見て背面（w <= 0）は「影なし」扱い
+    if (vClipLightView.w <= 0)
+    {
+        outColor.a = 0.0f;
+        return;
     }
-    float2 ndc   = clipL.xy / clipL.w;                // [-1,1]
-    float2 uvL   = ndc * float2(0.5f, -0.5f) + 0.5f;  // [0,1]
 
-    // DX9の半テクセル補正（必要なら）：レンダテクスチャ中心に合わせる
-    uvL += float2(0.5f * g_shadowTexelW, 0.5f * g_shadowTexelH);
+    // 2D平面の-1 ~ +1の範囲に正規化させた座標を取得する
+    float2 uvNormalizedView   = vClipLightView.xy / vClipLightView.w;                // [-1,1]
+
+    // -1 ~ +1 なのでUV画像に合わせるために 0 ~ 1 に調節する
+    float2 uvLightView   = uvNormalizedView * float2(0.5f, -0.5f) + 0.5f;  // [0,1]
+
+    // DX9の半テクセル補正
+    uvLightView += float2(0.5f * g_shadowTexelW, 0.5f * g_shadowTexelH);
 
     // ベースUVが枠外なら「影なし」
-    if (any(uvL < 0.0f) || any(uvL > 1.0f))
+    if (any(uvLightView < 0.0f) || any(uvLightView > 1.0f))
     {
-        return float4(0,0,0,0);
+        outColor.a = 0.0f;
+        return;
     }
 
     float shadow = 0.0f;
 
-    if (true)
+    if (g_bBlurEnable)
     {
-        // 3) 5x5 PCF：等重み平均。外れUVサンプルは「影なし = 0」扱い
-        float shadowSum = 0.0f;
+        // サンプリングされた個数
+        float fShadowSum = 0.0f;
 
         // 1テクセルのオフセット
-        float2 duv = float2(g_shadowTexelW, g_shadowTexelH);
+        float2 uvTexel = float2(g_shadowTexelW, g_shadowTexelH);
+
+        int nHalfSize = g_nBlurSize / 2;
 
         // 奇数であること
-        const int SIZE = 3;
+        const int SIZE_MAX = 13;
 
-        // 中心±2の5x5
-        [unroll]
-        for (int j = -(SIZE / 2); j <= (SIZE / 2); ++j)
+        // ボカシのレベルを調節する
+        // HLSLではfor文の開始・終了条件に変数を使えないのでちょっとした小細工が必要
+        for (int j = -(SIZE_MAX / 2); j <= (SIZE_MAX / 2); ++j)
         {
-            [unroll]
-            for (int i = -(SIZE / 2); i <= (SIZE / 2); ++i)
+            int j2 = abs(j);
+
+            if (j2 > nHalfSize)
             {
-                float2 uvS = uvL + float2(i, j) * duv;
+                continue;
+            }
+
+            for (int i = -(SIZE_MAX / 2); i <= (SIZE_MAX / 2); ++i)
+            {
+                int i2 = abs(i);
+
+                if (i2 > nHalfSize)
+                {
+                    continue;
+                }
+
+                float2 uvS = uvLightView + float2(i, j) * uvTexel;
 
                 // 外れUVは「影なし」= 0 として数えない（= サンプル値 0 扱い）
                 if (any(uvS < 0.0f) || any(uvS > 1.0f))
@@ -165,23 +202,25 @@ float4 PS_WriteShadow(in float4 posCS     : POSITION0,
                 }
                 else
                 {
-                    float depthLightSpace = tex2D(samplerLightZ, uvS).r;
+                    // tex2Dではなくtex2Dlodを使わなくてはいけない。そうしないと動かない
+                    float depthLightSpace = tex2Dlod(samplerLightZ, float4(uvS, 0, 0)).r;
+
                     // 比較（ライト側が小さければ影）
-                    if (depthLightSpace < (depthViewSpace - g_shadowBias))
+                    if (depthLightSpace < (fDepthLightView - g_shadowBias))
                     {
-                        shadowSum += 1.0f;
+                        fShadowSum += 1.0f;
                     }
                 }
             }
         }
 
         // 25サンプルの平均（0..1）
-        shadow = shadowSum / pow(SIZE, 2);
+        shadow = fShadowSum / pow(g_nBlurSize, 2);
     }
     else
     {
-        float depthLightSpace = tex2D(samplerLightZ, uvL).r;
-        if (depthLightSpace < (depthViewSpace - g_shadowBias))
+        float depthLightSpace = tex2D(samplerLightZ, uvLightView).r;
+        if (depthLightSpace < (fDepthLightView - g_shadowBias))
         {
             shadow = 1.0f;
         }
@@ -191,30 +230,31 @@ float4 PS_WriteShadow(in float4 posCS     : POSITION0,
         }
     }
 
-    // 指定：影は RGBA(0,0,0,0.5)、PCF平均なので 0.5 * shadow
-    return float4(0.0f, 0.0f, 0.0f, 0.5f * shadow);
+    outColor.a = shadow * g_shadowIntensity;
 }
 
 //-------------------------------------------------------------------------
 // Technique 3
 //-------------------------------------------------------------------------
 
-void VS_Composite(in  float4 inPosition  : POSITION,
-                   in  float2 inTexCood   : TEXCOORD0,
+void VS_Composite(in  float4 inPos  : POSITION,
+                  in  float2 inUV   : TEXCOORD0,
 
-                   out float4 outPosition : POSITION,
-                   out float2 outTexCood  : TEXCOORD0)
+                  out float4 outPos : POSITION,
+                  out float2 outUV  : TEXCOORD0)
 {
-    outPosition = inPosition;
-    outTexCood = inTexCood;
+    outPos = inPos;
+    outUV = inUV;
 }
 
 // 2枚の画像を線形補間で合成する
-float4 PS_Composite(in float4 inPosition : POSITION,
-                   in float2 inTexCood  : TEXCOORD0) : COLOR0
+void PS_Composite(in float4 inPos     : POSITION,
+                  in float2 inUV      : TEXCOORD0,
+
+                  out float4 outColor : COLOR0)
 {
-    float4 vBaseColor = tex2D(samplerBase,  inTexCood);
-    float4 vShadowColor = tex2D(samplerShadow, inTexCood);
+    float4 vBaseColor = tex2D(samplerBase,  inUV);
+    float4 vShadowColor = tex2D(samplerShadow, inUV);
 
     float4 result = float4(0, 0, 0, 0);
 
@@ -223,7 +263,7 @@ float4 PS_Composite(in float4 inPosition : POSITION,
 
     result.a = 1.f;
 
-    return result;
+    outColor = result;
 }
 
 // 光源から見た深度を描画するテクニック

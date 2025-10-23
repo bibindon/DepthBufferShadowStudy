@@ -663,6 +663,42 @@ void RenderPass2()
         hr = g_fxDepthBufferShadow->SetFloat("g_shadowBias",   0.002f);
         assert(hr == S_OK);
 
+        float fTime = 0.f;
+
+        if (false)
+        {
+            fTime = g_fTime;
+            fTime *= 0.5;
+            fTime = fmodf(fTime, 1.0f);
+        }
+        else
+        {
+            fTime = 0.5f;
+        }
+
+        hr = g_fxDepthBufferShadow->SetFloat("g_shadowIntensity", fTime);
+        assert(hr == S_OK);
+
+        int nBlurSize = 0;
+
+        if (true)
+        {
+            nBlurSize = (int)(g_fTime * 40);
+            nBlurSize = nBlurSize % 13;
+
+            if (nBlurSize % 2 == 0)
+            {
+                nBlurSize--;
+            }
+        }
+        else
+        {
+            nBlurSize = 3;
+        }
+
+        hr = g_fxDepthBufferShadow->SetInt("g_nBlurSize", nBlurSize);
+        assert(hr == S_OK);
+
         hr = g_fxDepthBufferShadow->SetTechnique("TechniqueWriteShadow");
         assert(hr == S_OK);
 
