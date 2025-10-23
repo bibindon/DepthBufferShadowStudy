@@ -250,7 +250,7 @@ void InitD3D(HWND hWnd)
                                 &g_pRenderTarget);
     assert(hResult == S_OK);
 
-    if (true)
+    if (false)
     {
         // 解像度16384x16384のテクスチャを作れないGPUは現代にはほぼ存在しない
         hResult = D3DXCreateTexture(g_pd3dDevice,
@@ -269,7 +269,8 @@ void InitD3D(HWND hWnd)
                                     SCREEN_H,
                                     1,
                                     D3DUSAGE_RENDERTARGET,
-                                    D3DFMT_A16B16G16R16,
+                                    //D3DFMT_A16B16G16R16,
+                                    D3DFMT_R16F,
                                     D3DPOOL_DEFAULT,
                                     &g_pRenderTarget2);
     }
@@ -283,7 +284,7 @@ void InitD3D(HWND hWnd)
     HRESULT hr = g_pd3dDevice->CreateDepthStencilSurface(bdesc.Width,
                                                          bdesc.Height,
                                                          D3DFMT_D16,
-                                                         //D3DFMT_D16,
+                                                         //D3DFMT_D24S8,
                                                          D3DMULTISAMPLE_NONE,
                                                          0,
                                                          TRUE,
@@ -612,7 +613,7 @@ void RenderPass2()
 
     D3DXMatrixLookAtLH(&V, &eye, &at, &up);
 
-    // ★ シャドウ比較に必要な定数をセット
+    // シャドウ比較に必要な定数をセット
     //    ※ g_matLightViewProj は View*Proj（World を含めない！）
     D3DXMATRIX LVP = Lview * Lproj;
 
