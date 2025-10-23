@@ -65,13 +65,12 @@ sampler textureSampler2 = sampler_state
     MagFilter = LINEAR;
 };
 
-float SampleShadow5x5(
-    float3 worldPos,
-    float4x4 LVP,
-    sampler2D smp,
-    float2 texelWH,
-    float lNear, float lFar,
-    float bias)
+float SampleShadow3x3(float3 worldPos,
+                      float4x4 LVP,
+                      sampler2D smp,
+                      float2 texelWH,
+                      float lNear, float lFar,
+                      float bias)
 {
     float4 clipL = mul(float4(worldPos,1), LVP);
     if (clipL.w <= 0) return 0.0f;
@@ -96,6 +95,38 @@ float SampleShadow5x5(
         }
     }
     return sum / 9.0f;
+}
+
+float SampleShadow5x5(float3 worldPos,
+                      float4x4 LVP,
+                      sampler2D smp,
+                      float2 texelWH,
+                      float lNear, float lFar,
+                      float bias)
+{
+    float4 clipL = mul(float4(worldPos,1), LVP);
+    if (clipL.w <= 0) return 0.0f;
+
+    float2 ndc = clipL.xy / clipL.w;
+    float2 uv  = ndc * float2(0.5f,-0.5f) + 0.5f;
+    uv += 0.5f * texelWH; // 半テクセル補正
+
+    if (any(uv < 0.0f) || any(uv > 1.0f)) return 0.0f;
+
+    float depthView = saturate(clipL.z / clipL.w);
+
+    float sum = 0.0f;
+    [unroll] for (int j=-2;j<=2;++j)
+    {
+        [unroll] for (int i=-2;i<=2;++i)
+        {
+            float2 uvS = uv + float2(i,j) * texelWH;
+            if (any(uvS<0.0f)||any(uvS>1.0f)) continue;
+            float d = tex2D(smp, uvS).r;
+            sum += (d < (depthView - g_shadowBias)) ? 1.0f : 0.0f;
+        }
+    }
+    return sum / 25.0f;
 }
 
 //-------------------------------------------------------------------------
@@ -163,8 +194,8 @@ float4 PixelShaderWorldPos(float4 posCS:POSITION0, float2 uv:TEXCOORD0, float3 w
     float3 posVS = mul(float4(worldPos,1), g_matView).xyz;
     float  zView = posVS.z; // LHなら前方が+z
 
-    float sh0 = SampleShadow5x5(worldPos, g_LVP0, sShadow0, float2(g_texelW0,g_texelH0), g_lNear0, g_lFar0, g_shadowBias);
-    float sh1 = SampleShadow5x5(worldPos, g_LVP1, sShadow1, float2(g_texelW1,g_texelH1), g_lNear1, g_lFar1, g_shadowBias);
+    float sh0 = SampleShadow3x3(worldPos, g_LVP0, sShadow0, float2(g_texelW0,g_texelH0), g_lNear0, g_lFar0, g_shadowBias);
+    float sh1 = SampleShadow3x3(worldPos, g_LVP1, sShadow1, float2(g_texelW1,g_texelH1), g_lNear1, g_lFar1, g_shadowBias);
 
     float shadow;
     if (g_blendZ <= 0.0f)

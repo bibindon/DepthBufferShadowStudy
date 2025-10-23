@@ -268,12 +268,12 @@ void InitD3D(HWND hWnd)
     else
     {
         hResult = D3DXCreateTexture(g_pd3dDevice,
-                                    SCREEN_W,
-                                    SCREEN_H,
+                                    SCREEN_W * 2,
+                                    SCREEN_H * 2,
                                     1,
                                     D3DUSAGE_RENDERTARGET,
                                     //D3DFMT_A16B16G16R16,
-                                    D3DFMT_R16F,
+                                    D3DFMT_R32F,
                                     D3DPOOL_DEFAULT,
                                     &g_pRenderTarget2);
     }
@@ -301,7 +301,7 @@ void InitD3D(HWND hWnd)
                                        SCREEN_W, SCREEN_H,
                                        1,
                                        D3DUSAGE_RENDERTARGET,
-                                       D3DFMT_R16F,        // 近景と同じ
+                                       D3DFMT_R32F,        // 近景と同じ
                                        D3DPOOL_DEFAULT,
                                        &g_pShadowMap1);
         assert(hr == S_OK);
@@ -485,7 +485,7 @@ void RenderPass2()
 
     // ===== 近景カスケードの設定（①で使用、③でも同じ値を再使用） =====
     float lNear0 = 1.0f,  lFar0 = 140.0f;
-    float ow0    = 10.0f, oh0   = 10.0f;
+    float ow0    = 30.0f, oh0   = 30.0f;
     D3DXMATRIX Lproj0; D3DXMatrixOrthoLH(&Lproj0, ow0, oh0, lNear0, lFar0);
 
     // ===== 遠景カスケードの設定（②で使用、③でも同じ値を再使用） =====
@@ -646,7 +646,7 @@ void RenderPass2()
         g_pEffect2->SetFloat("g_texelH1", 1.0f/sd1.Height);
 
         g_pEffect2->SetFloat("g_shadowBias", 0.001f);
-        g_pEffect2->SetFloat("g_splitZ",     30.0f);
+        g_pEffect2->SetFloat("g_splitZ",     15.0f);
         g_pEffect2->SetFloat("g_blendZ",      0.0f); // 最初は0で切替を確認
 
         UINT np=0; g_pEffect2->Begin(&np,0); g_pEffect2->BeginPass(0);
@@ -716,7 +716,7 @@ void RenderPass3()
     assert(hr == S_OK);
 
     // --- デバッグ小窓：B(左上), C(左下) を 1/2 スケールでスプライト表示 ---
-    if (true)
+    if (false)
     {
         hr = g_pSprite->Begin(D3DXSPRITE_ALPHABLEND);
         assert(hr == S_OK);
