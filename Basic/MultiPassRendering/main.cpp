@@ -688,7 +688,7 @@ void RenderPass2()
 
             if (nBlurSize % 2 == 0)
             {
-                nBlurSize--;
+                nBlurSize++;
             }
         }
         else

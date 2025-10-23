@@ -16,7 +16,7 @@ float g_shadowTexelH;
 float g_shadowBias;
 
 // 影の濃さ(0 ~ 1)
-float g_shadowIntensity = 0.5f;
+float g_shadowIntensity;
 
 bool g_bBlurEnable = true;
 
@@ -174,39 +174,47 @@ void PS_WriteShadow(in float4 inPos       : POSITION0,
         const int SIZE_MAX = 13;
 
         // ボカシのレベルを調節する
-        // HLSLではfor文の開始・終了条件に定数しか使えないのでちょっとした小細工が必要
-        for (int j = -(SIZE_MAX / 2); j <= (SIZE_MAX / 2); ++j)
+        // HLSLではfor文の開始・終了条件に定数しか使えないので
+        // ループ回数を固定にしたうえで、途中で処理を抜けるようにして実現する
+        for (int j = 0; j < SIZE_MAX; ++j)
         {
-            int j2 = abs(j);
-
-            if (j2 > nHalfSize)
+            if (j >= g_nBlurSize)
             {
                 continue;
             }
 
-            for (int i = -(SIZE_MAX / 2); i <= (SIZE_MAX / 2); ++i)
-            {
-                int i2 = abs(i);
+            // サイズが5なら-2, -1, 0, 1, 2というようにしたいので(5/2)を引く
+            int j2 = j;
+            j2 -= nHalfSize;
 
-                if (i2 > nHalfSize)
+            for (int i = 0; i < SIZE_MAX; ++i)
+            {
+                if (i >= g_nBlurSize)
                 {
                     continue;
                 }
 
-                float2 uvS = uvLightView + float2(i, j) * uvTexel;
+                int i2 = i;
+                i2 -= nHalfSize;
+
+                float2 uvNear = uvLightView + float2(i2, j2) * uvTexel;
 
                 // 外れUVは「影なし」= 0 として数えない（= サンプル値 0 扱い）
-                if (any(uvS < 0.0f) || any(uvS > 1.0f))
+                if (any(uvNear < 0.0f) || any(uvNear > 1.0f))
                 {
-                    // 何もしない（0加算）
+                    // 何もしない
                 }
                 else
                 {
+                    // 深度画像の該当するUV座標の色を取得。深度情報を色として描画しているので
+                    // この色が深度である。
                     // tex2Dではなくtex2Dlodを使わなくてはいけない。そうしないと動かない
-                    float depthLightSpace = tex2Dlod(samplerLightZ, float4(uvS, 0, 0)).r;
+                    float fDepthLightZTexture = tex2Dlod(samplerLightZ, float4(uvNear, 0, 0)).r;
 
-                    // 比較（ライト側が小さければ影）
-                    if (depthLightSpace < (fDepthLightView - g_shadowBias))
+                    // 最重要パート
+                    // 深度画像の深度値と実際の座標から光源までの距離を深度値に変換した値を比較する
+                    // 深度画像の深度値の方が短いならそこは影である
+                    if (fDepthLightZTexture < (fDepthLightView - g_shadowBias))
                     {
                         fShadowSum += 1.0f;
                     }
@@ -214,13 +222,13 @@ void PS_WriteShadow(in float4 inPos       : POSITION0,
             }
         }
 
-        // 25サンプルの平均（0..1）
+        // サンプルの平均
         shadow = fShadowSum / pow(g_nBlurSize, 2);
     }
     else
     {
-        float depthLightSpace = tex2D(samplerLightZ, uvLightView).r;
-        if (depthLightSpace < (fDepthLightView - g_shadowBias))
+        float fDepthLightZTexture = tex2D(samplerLightZ, uvLightView).r;
+        if (fDepthLightZTexture < (fDepthLightView - g_shadowBias))
         {
             shadow = 1.0f;
         }
