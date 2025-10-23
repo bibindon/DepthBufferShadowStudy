@@ -17,6 +17,7 @@
 
 const int SCREEN_W = 1600;
 const int SCREEN_H = 900;
+const float SPACING = 15.0f;
 
 LPDIRECT3D9 g_pD3D = NULL;
 LPDIRECT3DDEVICE9 g_pd3dDevice = NULL;
@@ -25,16 +26,14 @@ LPD3DXMESH g_pMesh = NULL;
 std::vector<D3DMATERIAL9> g_pMaterials;
 std::vector<LPDIRECT3DTEXTURE9> g_pTextures;
 DWORD g_dwNumMaterials = 0;
-LPD3DXEFFECT g_pEffect1 = NULL;
-LPD3DXEFFECT g_pEffect2 = NULL;
+LPD3DXEFFECT g_fxBase = NULL;
+LPD3DXEFFECT g_fxDepthBufferShadow = NULL;
 
-bool g_bClose = false;
+LPDIRECT3DTEXTURE9 g_texRenderTargetBase = NULL;
+LPDIRECT3DTEXTURE9 g_texRenderTargetLightZ = NULL;
+LPDIRECT3DTEXTURE9 g_texRenderTargetShadow = NULL;
 
-LPDIRECT3DTEXTURE9 g_pRenderTarget = NULL;
-LPDIRECT3DTEXTURE9 g_pRenderTarget2 = NULL;
-LPDIRECT3DTEXTURE9 g_pPostTexture = NULL;
-
-LPDIRECT3DSURFACE9 g_pShadowZ = NULL;
+LPDIRECT3DSURFACE9 g_surfaceLightZStensil = NULL;
 
 LPDIRECT3DVERTEXDECLARATION9 g_pQuadDecl = NULL;
 
@@ -42,7 +41,8 @@ LPDIRECT3DVERTEXDECLARATION9 g_pQuadDecl = NULL;
 LPD3DXSPRITE g_pSprite = NULL;
 
 float g_fTime = 0.0f;
-float SPACING = 15.0f; // 5x5 グリッドの間隔
+
+bool g_bClose = false;
 
 struct QuadVertex
 {
@@ -227,7 +227,7 @@ void InitD3D(HWND hWnd)
                                        NULL,
                                        D3DXSHADER_DEBUG,
                                        NULL,
-                                       &g_pEffect1,
+                                       &g_fxBase,
                                        NULL);
     assert(hResult == S_OK);
 
@@ -237,7 +237,7 @@ void InitD3D(HWND hWnd)
                                        NULL,
                                        D3DXSHADER_DEBUG,
                                        NULL,
-                                       &g_pEffect2,
+                                       &g_fxDepthBufferShadow,
                                        NULL);
     assert(hResult == S_OK);
 
@@ -247,7 +247,7 @@ void InitD3D(HWND hWnd)
                                 D3DUSAGE_RENDERTARGET,
                                 D3DFMT_A8R8G8B8,
                                 D3DPOOL_DEFAULT,
-                                &g_pRenderTarget);
+                                &g_texRenderTargetBase);
     assert(hResult == S_OK);
 
     if (false)
@@ -260,25 +260,26 @@ void InitD3D(HWND hWnd)
                                     D3DUSAGE_RENDERTARGET,
                                     D3DFMT_R16F,
                                     D3DPOOL_DEFAULT,
-                                    &g_pRenderTarget2);
+                                    &g_texRenderTargetLightZ);
     }
     else
     {
         hResult = D3DXCreateTexture(g_pd3dDevice,
-                                    SCREEN_W,
-                                    SCREEN_H,
+                                    SCREEN_W * 2,
+                                    SCREEN_H * 2,
                                     1,
                                     D3DUSAGE_RENDERTARGET,
                                     //D3DFMT_A16B16G16R16,
-                                    D3DFMT_R16F,
+                                    //D3DFMT_R16F,
+                                    D3DFMT_R32F,
                                     D3DPOOL_DEFAULT,
-                                    &g_pRenderTarget2);
+                                    &g_texRenderTargetLightZ);
     }
 
     assert(hResult == S_OK);
 
     D3DSURFACE_DESC bdesc{};
-    g_pRenderTarget2->GetLevelDesc(0, &bdesc);
+    g_texRenderTargetLightZ->GetLevelDesc(0, &bdesc);
 
     // 影用の深度ステンシル（サイズをRT2に合わせる）
     HRESULT hr = g_pd3dDevice->CreateDepthStencilSurface(bdesc.Width,
@@ -288,7 +289,7 @@ void InitD3D(HWND hWnd)
                                                          D3DMULTISAMPLE_NONE,
                                                          0,
                                                          TRUE,
-                                                         &g_pShadowZ,
+                                                         &g_surfaceLightZStensil,
                                                          NULL);
     assert(hr == S_OK);
 
@@ -299,10 +300,9 @@ void InitD3D(HWND hWnd)
                                 D3DUSAGE_RENDERTARGET,
                                 D3DFMT_A8R8G8B8,
                                 D3DPOOL_DEFAULT,
-                                &g_pPostTexture);
+                                &g_texRenderTargetShadow);
     assert(hResult == S_OK);
 
-    // フルスクリーンクアッドの頂宣言
     D3DVERTEXELEMENT9 elems[] =
     {
         { 0,  0, D3DDECLTYPE_FLOAT4, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0 },
@@ -325,12 +325,12 @@ void Cleanup()
     }
 
     SAFE_RELEASE(g_pMesh);
-    SAFE_RELEASE(g_pEffect1);
-    SAFE_RELEASE(g_pEffect2);
+    SAFE_RELEASE(g_fxBase);
+    SAFE_RELEASE(g_fxDepthBufferShadow);
 
-    SAFE_RELEASE(g_pRenderTarget);
-    SAFE_RELEASE(g_pRenderTarget2);
-    SAFE_RELEASE(g_pPostTexture);
+    SAFE_RELEASE(g_texRenderTargetBase);
+    SAFE_RELEASE(g_texRenderTargetLightZ);
+    SAFE_RELEASE(g_texRenderTargetShadow);
     SAFE_RELEASE(g_pQuadDecl);
     SAFE_RELEASE(g_pSprite);
 
@@ -346,34 +346,37 @@ void RenderPass1()
     hr = g_pd3dDevice->GetRenderTarget(0, &oldRT0);
     assert(hr == S_OK);
 
-    LPDIRECT3DSURFACE9 rtA = NULL;
-    LPDIRECT3DSURFACE9 rtDummy = NULL;
+    LPDIRECT3DSURFACE9 surfaceBase = NULL;
 
-    hr = g_pRenderTarget->GetSurfaceLevel(0, &rtA);
+    // Pass1で深度情報を描画するが今回は使用しない
+    LPDIRECT3DSURFACE9 surfaceDummy = NULL;
+
+    hr = g_texRenderTargetBase->GetSurfaceLevel(0, &surfaceBase);
     assert(hr == S_OK);
 
-    hr = g_pRenderTarget2->GetSurfaceLevel(0, &rtDummy);
+    hr = g_texRenderTargetLightZ->GetSurfaceLevel(0, &surfaceDummy);
     assert(hr == S_OK);
 
-    hr = g_pd3dDevice->SetRenderTarget(0, rtA);
+    hr = g_pd3dDevice->SetRenderTarget(0, surfaceBase);
     assert(hr == S_OK);
 
     hr = g_pd3dDevice->SetRenderTarget(1, NULL);
     assert(hr == S_OK);
 
     // カメラ行列（V/P）
-    D3DXMATRIX V, P;
-    D3DXMatrixPerspectiveFovLH(&P,
+    D3DXMATRIX mView;
+    D3DXMATRIX mProj;
+    D3DXMatrixPerspectiveFovLH(&mProj,
                                D3DXToRadian(45.0f),
                                (float)SCREEN_W / SCREEN_H,
                                1.0f,
                                100.0f);
 
-    D3DXVECTOR3 eye(10.0f * sinf(g_fTime), 5.0f, -10.0f * cosf(g_fTime));
-    D3DXVECTOR3 at(0, 0, 0);
-    D3DXVECTOR3 up(0, 1, 0);
+    D3DXVECTOR3 vEye(10.0f * sinf(g_fTime), 5.0f, -10.0f * cosf(g_fTime));
+    D3DXVECTOR3 vAt(0, 0, 0);
+    D3DXVECTOR3 vUp(0, 1, 0);
 
-    D3DXMatrixLookAtLH(&V, &eye, &at, &up);
+    D3DXMatrixLookAtLH(&mView, &vEye, &vAt, &vUp);
 
     // クリア
     hr = g_pd3dDevice->Clear(0, NULL,
@@ -386,18 +389,17 @@ void RenderPass1()
     hr = g_pd3dDevice->BeginScene();
     assert(hr == S_OK);
 
-    // 通常描画（TechniqueMRT）
-    hr = g_pEffect1->SetTechnique("TechniqueMRT");
+    hr = g_fxBase->SetTechnique("TechniqueMRT");
     assert(hr == S_OK);
     UINT np = 0;
 
-    hr = g_pEffect1->Begin(&np, 0);
+    hr = g_fxBase->Begin(&np, 0);
     assert(hr == S_OK);
 
-    hr = g_pEffect1->BeginPass(0);
+    hr = g_fxBase->BeginPass(0);
     assert(hr == S_OK);
 
-    hr = g_pEffect1->SetBool("g_bUseTexture", TRUE);
+    hr = g_fxBase->SetBool("g_bUseTexture", TRUE);
     assert(hr == S_OK);
 
     for (int idx = 0; idx < 25; ++idx)
@@ -405,20 +407,21 @@ void RenderPass1()
         int gx = idx % 5 - 2;
         int gz = idx / 5 - 2;
 
-        // W と WVP を個体ごとにセット
-        D3DXMATRIX W, WVP;
-        D3DXMatrixTranslation(&W, gx * SPACING, 0.0f, gz * SPACING);
-        WVP = W * V * P;
+        // mWorld と mWorldViewProj を個体ごとにセット
+        D3DXMATRIX mWorld;
+        D3DXMATRIX mWorldViewProj;
+        D3DXMatrixTranslation(&mWorld, gx * SPACING, 0.0f, gz * SPACING);
+        mWorldViewProj = mWorld * mView * mProj;
 
-        hr = g_pEffect1->SetMatrix("g_matWorldViewProj", &WVP);
+        hr = g_fxBase->SetMatrix("g_matWorldViewProj", &mWorldViewProj);
         assert(hr == S_OK);
 
         for (DWORD i = 0; i < g_dwNumMaterials; ++i)
         {
-            hr = g_pEffect1->SetTexture("g_textureBase", g_pTextures[i]);
+            hr = g_fxBase->SetTexture("g_textureBase", g_pTextures[i]);
             assert(hr == S_OK);
 
-            hr = g_pEffect1->CommitChanges();
+            hr = g_fxBase->CommitChanges();
             assert(hr == S_OK);
 
             hr = g_pMesh->DrawSubset(i);
@@ -426,24 +429,23 @@ void RenderPass1()
         }
     }
 
-    hr = g_pEffect1->EndPass();
+    hr = g_fxBase->EndPass();
     assert(hr == S_OK);
 
-    hr = g_pEffect1->End();
+    hr = g_fxBase->End();
     assert(hr == S_OK);
 
     hr = g_pd3dDevice->EndScene();
     assert(hr == S_OK);
 
-    // 後片付け
     hr = g_pd3dDevice->SetRenderTarget(0, oldRT0);
     assert(hr == S_OK);
 
     hr = g_pd3dDevice->SetRenderTarget(1, NULL);
     assert(hr == S_OK);
 
-    SAFE_RELEASE(rtA);
-    SAFE_RELEASE(rtDummy);
+    SAFE_RELEASE(surfaceBase);
+    SAFE_RELEASE(surfaceDummy);
     SAFE_RELEASE(oldRT0);
 }
 
@@ -451,7 +453,9 @@ void RenderPass2()
 {
     HRESULT hr = E_FAIL;
 
-    // ====== (1) Light から見た深度を Texture B に可視化 ======
+    //---------------------------------------------------------------------
+    // (1) 光源から見た深度をテクスチャに描画
+    //---------------------------------------------------------------------
     LPDIRECT3DSURFACE9 oldRT0 = NULL;
     LPDIRECT3DSURFACE9 oldZ = NULL;
 
@@ -461,35 +465,34 @@ void RenderPass2()
     hr = g_pd3dDevice->GetDepthStencilSurface(&oldZ);
     assert(hr == S_OK);
 
-    LPDIRECT3DSURFACE9 rtB = NULL;
+    LPDIRECT3DSURFACE9 surfaceLightZ = NULL;
 
-    hr = g_pRenderTarget2->GetSurfaceLevel(0, &rtB);
+    hr = g_texRenderTargetLightZ->GetSurfaceLevel(0, &surfaceLightZ);
     assert(hr == S_OK);
 
-    hr = g_pd3dDevice->SetRenderTarget(0, rtB);
+    hr = g_pd3dDevice->SetRenderTarget(0, surfaceLightZ);
     assert(hr == S_OK);
 
-    hr = g_pd3dDevice->SetDepthStencilSurface(g_pShadowZ);
+    hr = g_pd3dDevice->SetDepthStencilSurface(g_surfaceLightZStensil);
     assert(hr == S_OK);
 
     // Viewport をテクスチャのサイズに変更
     // これをしないと一部のエリアにしか描画されない
-    D3DSURFACE_DESC bdesc{};
-    g_pRenderTarget2->GetLevelDesc(0, &bdesc);
+    D3DSURFACE_DESC descLightZ { };
+    g_texRenderTargetLightZ->GetLevelDesc(0, &descLightZ);
 
-    D3DVIEWPORT9 oldVP{};
-    g_pd3dDevice->GetViewport(&oldVP);
+    D3DVIEWPORT9 oldViewPort { };
+    g_pd3dDevice->GetViewport(&oldViewPort);
 
-    D3DVIEWPORT9 vpB{};
-    vpB.X = 0;
-    vpB.Y = 0;
-    vpB.Width  = bdesc.Width;
-    vpB.Height = bdesc.Height;
-    vpB.MinZ = 0.0f;
-    vpB.MaxZ = 1.0f;
-    g_pd3dDevice->SetViewport(&vpB);
+    D3DVIEWPORT9 viewPortLightZ{};
+    viewPortLightZ.X = 0;
+    viewPortLightZ.Y = 0;
+    viewPortLightZ.Width  = descLightZ.Width;
+    viewPortLightZ.Height = descLightZ.Height;
+    viewPortLightZ.MinZ = 0.0f;
+    viewPortLightZ.MaxZ = 1.0f;
+    g_pd3dDevice->SetViewport(&viewPortLightZ);
 
-    // 影用の未描画 = 無限遠にしたいので白（=1.0）でクリア
     hr = g_pd3dDevice->Clear(0, NULL,
                              D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
                              D3DCOLOR_XRGB(255, 255, 255),
@@ -497,39 +500,39 @@ void RenderPass2()
                              0);
     assert(hr == S_OK);
 
-    D3DXMATRIX Lview;
-    D3DXMATRIX Lproj;
-    D3DXVECTOR3 leye(40, 50, -40);
-    D3DXVECTOR3 lat(0, 0, 0);
-    D3DXVECTOR3 lup(0, 1, 0);
-    D3DXMatrixLookAtLH(&Lview, &leye, &lat, &lup);
+    D3DXMATRIX mLightView;
+    D3DXMATRIX mLightProj;
+    D3DXVECTOR3 vLightEye(40, 50, -40);
+    D3DXVECTOR3 vLightAt(0, 0, 0);
+    D3DXVECTOR3 vLightUp(0, 1, 0);
+    D3DXMatrixLookAtLH(&mLightView, &vLightEye, &vLightAt, &vLightUp);
 
-    float lNear = 10.0f;
-    float lFar = 200.0f;
+    float fLightNear = 10.0f;
+    float fLightFar = 200.0f;
     float viewWidth = 100.0f;
     float viewHeight = 100.0f;
-    D3DXMatrixOrthoLH(&Lproj, viewWidth, viewHeight, lNear, lFar);
+    D3DXMatrixOrthoLH(&mLightProj, viewWidth, viewHeight, fLightNear, fLightFar);
 
     hr = g_pd3dDevice->BeginScene();
     assert(hr == S_OK);
 
-    hr = g_pEffect2->SetTechnique("TechniqueDepthFromLight");
+    hr = g_fxDepthBufferShadow->SetTechnique("TechniqueDepthFromLight");
     assert(hr == S_OK);
 
-    hr = g_pEffect2->SetMatrix("g_matLightView", &Lview);
+    hr = g_fxDepthBufferShadow->SetMatrix("g_matLightView", &mLightView);
     assert(hr == S_OK);
 
-    hr = g_pEffect2->SetFloat ("g_lightNear", lNear);
+    hr = g_fxDepthBufferShadow->SetFloat ("g_lightNear", fLightNear);
     assert(hr == S_OK);
 
-    hr = g_pEffect2->SetFloat ("g_lightFar", lFar);
+    hr = g_fxDepthBufferShadow->SetFloat ("g_lightFar", fLightFar);
     assert(hr == S_OK);
 
     UINT np = 0;
-    hr = g_pEffect2->Begin(&np, 0);
+    hr = g_fxDepthBufferShadow->Begin(&np, 0);
     assert(hr == S_OK);
 
-    hr = g_pEffect2->BeginPass(0);
+    hr = g_fxDepthBufferShadow->BeginPass(0);
     assert(hr == S_OK);
 
     for (int idx = 0; idx < 25; ++idx)
@@ -537,17 +540,19 @@ void RenderPass2()
         int gx = idx % 5 - 2;
         int gz = idx / 5 - 2;
 
-        D3DXMATRIX W, LWVP;
-        D3DXMatrixTranslation(&W, gx * SPACING, 0.0f, gz * SPACING);
-        LWVP = W * Lview * Lproj;
+        D3DXMATRIX mWorld;
+        D3DXMATRIX mWorldViewProjLight;
+
+        D3DXMatrixTranslation(&mWorld, gx * SPACING, 0.0f, gz * SPACING);
+        mWorldViewProjLight = mWorld * mLightView * mLightProj;
         
-        hr = g_pEffect2->SetMatrix("g_matWorld", &W);
+        hr = g_fxDepthBufferShadow->SetMatrix("g_matWorld", &mWorld);
         assert(hr == S_OK);
 
-        hr = g_pEffect2->SetMatrix("g_matWorldViewProj", &LWVP);
+        hr = g_fxDepthBufferShadow->SetMatrix("g_matWorldViewProj", &mWorldViewProjLight);
         assert(hr == S_OK);
 
-        hr = g_pEffect2->CommitChanges();
+        hr = g_fxDepthBufferShadow->CommitChanges();
         assert(hr == S_OK);
 
         for (DWORD i = 0; i < g_dwNumMaterials; ++i)
@@ -557,10 +562,10 @@ void RenderPass2()
         }
     }
 
-    hr = g_pEffect2->EndPass();
+    hr = g_fxDepthBufferShadow->EndPass();
     assert(hr == S_OK);
 
-    hr = g_pEffect2->End();
+    hr = g_fxDepthBufferShadow->End();
     assert(hr == S_OK);
 
     hr = g_pd3dDevice->EndScene();
@@ -568,26 +573,28 @@ void RenderPass2()
     
     g_pd3dDevice->SetDepthStencilSurface(oldZ);
 
-    // ====== (2) カメラから見た描画を Texture C に（シャドウ比較込み） ======
-    LPDIRECT3DSURFACE9 rtC = NULL;
-    hr = g_pPostTexture->GetSurfaceLevel(0, &rtC);
+    //------------------------------------------------------------------
+    // (2) カメラ視点で描画を行い、各ピクセルについて影か判定し、影を描画
+    //------------------------------------------------------------------
+    LPDIRECT3DSURFACE9 surfaceShadow= NULL;
+    hr = g_texRenderTargetShadow->GetSurfaceLevel(0, &surfaceShadow);
     assert(hr == S_OK);
 
-    hr = g_pd3dDevice->SetRenderTarget(0, rtC);
+    hr = g_pd3dDevice->SetRenderTarget(0, surfaceShadow);
     assert(hr == S_OK);
 
-    D3DVIEWPORT9 vpC{};
+    D3DVIEWPORT9 viewportShadow{};
 
-    vpC.X = 0;
-    vpC.Y = 0;
+    viewportShadow.X = 0;
+    viewportShadow.Y = 0;
 
-    vpC.Width  = SCREEN_W;
-    vpC.Height = SCREEN_H;
+    viewportShadow.Width  = SCREEN_W;
+    viewportShadow.Height = SCREEN_H;
 
-    vpC.MinZ = 0.0f;
-    vpC.MaxZ = 1.0f;
+    viewportShadow.MinZ = 0.0f;
+    viewportShadow.MaxZ = 1.0f;
 
-    g_pd3dDevice->SetViewport(&vpC);
+    g_pd3dDevice->SetViewport(&viewportShadow);
 
     hr = g_pd3dDevice->Clear(0, NULL,
                              D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
@@ -596,70 +603,72 @@ void RenderPass2()
                              0);
     assert(hr == S_OK);
 
-    // カメラ行列（V/P）
-    D3DXMATRIX V, P;
-    D3DXMatrixPerspectiveFovLH(&P,
+    // カメラ行列
+    D3DXMATRIX mView;
+    D3DXMATRIX mProj;
+
+    D3DXMatrixPerspectiveFovLH(&mProj,
                                D3DXToRadian(45.0f),
                                (float)SCREEN_W / SCREEN_H,
                                1.0f,
                                100.0f);
 
-    D3DXVECTOR3 eye(10.0f * sinf(g_fTime),
-                    5.0f,
-                    -10.0f * cosf(g_fTime));
+    D3DXVECTOR3 vEye(10.0f * sinf(g_fTime),
+                     5.0f,
+                     -10.0f * cosf(g_fTime));
 
-    D3DXVECTOR3 at(0, 0, 0);
-    D3DXVECTOR3 up(0, 1, 0);
+    D3DXVECTOR3 vAt(0, 0, 0);
+    D3DXVECTOR3 vUp(0, 1, 0);
 
-    D3DXMatrixLookAtLH(&V, &eye, &at, &up);
+    D3DXMatrixLookAtLH(&mView, &vEye, &vAt, &vUp);
 
     // シャドウ比較に必要な定数をセット
     //    ※ g_matLightViewProj は View*Proj（World を含めない！）
-    D3DXMATRIX LVP = Lview * Lproj;
+    D3DXMATRIX LVP = mLightView * mLightProj;
 
     hr = g_pd3dDevice->BeginScene();
     assert(hr == S_OK);
 
-    hr = g_pEffect2->SetMatrix("g_matLightViewProj", &LVP);
+    hr = g_fxDepthBufferShadow->SetMatrix("g_matLightViewProj", &LVP);
     assert(hr == S_OK);
 
-    hr = g_pEffect2->SetMatrix("g_matLightView", &Lview);
+    hr = g_fxDepthBufferShadow->SetMatrix("g_matLightView", &mLightView);
     assert(hr == S_OK);
 
-    hr = g_pEffect2->SetFloat("g_lightNear", lNear);
+    hr = g_fxDepthBufferShadow->SetFloat("g_lightNear", fLightNear);
     assert(hr == S_OK);
 
-    hr = g_pEffect2->SetFloat("g_lightFar", lFar);
+    hr = g_fxDepthBufferShadow->SetFloat("g_lightFar", fLightFar);
     assert(hr == S_OK);
 
-    hr = g_pEffect2->SetTexture("textureShadow", g_pRenderTarget2);
+    hr = g_fxDepthBufferShadow->SetTexture("textureShadow", g_texRenderTargetLightZ);
     assert(hr == S_OK);
 
     // PCF のテクセルサイズ（B の実サイズから算出）
     D3DSURFACE_DESC descB{};
 
-    hr = g_pRenderTarget2->GetLevelDesc(0, &descB);
+    hr = g_texRenderTargetLightZ->GetLevelDesc(0, &descB);
     assert(hr == S_OK);
 
-    hr = g_pEffect2->SetFloat("g_shadowTexelW", 1.0f / (float)descB.Width);
+    hr = g_fxDepthBufferShadow->SetFloat("g_shadowTexelW", 1.0f / (float)descB.Width);
     assert(hr == S_OK);
 
-    hr = g_pEffect2->SetFloat("g_shadowTexelH", 1.0f / (float)descB.Height);
+    hr = g_fxDepthBufferShadow->SetFloat("g_shadowTexelH", 1.0f / (float)descB.Height);
     assert(hr == S_OK);
 
-    hr = g_pEffect2->SetFloat("g_shadowBias",   0.002f);
+    hr = g_fxDepthBufferShadow->SetFloat("g_shadowBias",   0.002f);
     assert(hr == S_OK);
 
     // TechniqueWorldPos（worldPos を使って影付け）
-    hr = g_pEffect2->SetTechnique("TechniqueWorldPos");
+    hr = g_fxDepthBufferShadow->SetTechnique("TechniqueWorldPos");
     assert(hr == S_OK);
 
     UINT np2 = 0;
 
-    hr = g_pEffect2->Begin(&np2, 0);
+    hr = g_fxDepthBufferShadow->Begin(&np2, 0);
     assert(hr == S_OK);
 
-    hr = g_pEffect2->BeginPass(0);
+    hr = g_fxDepthBufferShadow->BeginPass(0);
     assert(hr == S_OK);
 
     for (int idx = 0; idx < 25; ++idx)
@@ -673,16 +682,16 @@ void RenderPass2()
                               0.0f,
                               gz * SPACING);
 
-        WVP = W * V * P;
+        WVP = W * mView * mProj;
 
-        // ★ VS へ：worldPos を作る W と、描画用の WVP を毎回更新
-        hr = g_pEffect2->SetMatrix("g_matWorld", &W);
+        // ★ VS へ：worldPos を作る mWorld と、描画用の WVP を毎回更新
+        hr = g_fxDepthBufferShadow->SetMatrix("g_matWorld", &W);
         assert(hr == S_OK);
 
-        hr = g_pEffect2->SetMatrix("g_matWorldViewProj", &WVP);
+        hr = g_fxDepthBufferShadow->SetMatrix("g_matWorldViewProj", &WVP);
         assert(hr == S_OK);
 
-        hr = g_pEffect2->CommitChanges();
+        hr = g_fxDepthBufferShadow->CommitChanges();
         assert(hr == S_OK);
 
         for (DWORD i = 0; i < g_dwNumMaterials; ++i)
@@ -692,10 +701,10 @@ void RenderPass2()
         }
     }
 
-    hr = g_pEffect2->EndPass();
+    hr = g_fxDepthBufferShadow->EndPass();
     assert(hr == S_OK);
 
-    hr = g_pEffect2->End();
+    hr = g_fxDepthBufferShadow->End();
     assert(hr == S_OK);
 
     hr = g_pd3dDevice->EndScene();
@@ -705,8 +714,8 @@ void RenderPass2()
     hr = g_pd3dDevice->SetRenderTarget(0, oldRT0);
     assert(hr == S_OK);
 
-    SAFE_RELEASE(rtB);
-    SAFE_RELEASE(rtC);
+    SAFE_RELEASE(surfaceLightZ);
+    SAFE_RELEASE(surfaceShadow);
     SAFE_RELEASE(oldRT0);
 }
 
@@ -726,36 +735,36 @@ void RenderPass3()
     hr = g_pd3dDevice->BeginScene();
     assert(hr == S_OK);
 
-    hr = g_pEffect2->SetTechnique("TechniqueComposite");
+    hr = g_fxDepthBufferShadow->SetTechnique("TechniqueComposite");
     assert(hr == S_OK);
 
-    UINT np=0;
-    hr = g_pEffect2->Begin(&np,0);
+    UINT nPassNum = 0;
+    hr = g_fxDepthBufferShadow->Begin(&nPassNum, 0);
     assert(hr == S_OK);
 
-    hr = g_pEffect2->BeginPass(0);
+    hr = g_fxDepthBufferShadow->BeginPass(0);
     assert(hr == S_OK);
 
     // texture1=A, texture2=C
-    hr = g_pEffect2->SetTexture("texture1", g_pRenderTarget);
+    hr = g_fxDepthBufferShadow->SetTexture("texture1", g_texRenderTargetBase);
     assert(hr == S_OK);
 
-    hr = g_pEffect2->SetTexture("texture2", g_pPostTexture);
+    hr = g_fxDepthBufferShadow->SetTexture("texture2", g_texRenderTargetShadow);
     assert(hr == S_OK);
 
-    hr = g_pEffect2->CommitChanges();
+    hr = g_fxDepthBufferShadow->CommitChanges();
     assert(hr == S_OK);
 
     DrawFullscreenQuad();
 
-    hr = g_pEffect2->EndPass();
+    hr = g_fxDepthBufferShadow->EndPass();
     assert(hr == S_OK);
 
-    hr = g_pEffect2->End();
+    hr = g_fxDepthBufferShadow->End();
     assert(hr == S_OK);
 
     // --- デバッグ小窓：B(左上), C(左下) を 1/2 スケールでスプライト表示 ---
-    if (true)
+    if (false)
     {
         hr = g_pSprite->Begin(D3DXSPRITE_ALPHABLEND);
         assert(hr == S_OK);
@@ -772,7 +781,7 @@ void RenderPass3()
             hr = g_pSprite->SetTransform(&m);
             assert(hr == S_OK);
 
-            hr = g_pSprite->Draw(g_pRenderTarget2, NULL, NULL, NULL, 0xFFFFFFFF);
+            hr = g_pSprite->Draw(g_texRenderTargetLightZ, NULL, NULL, NULL, 0xFFFFFFFF);
             assert(hr == S_OK);
         }
 
@@ -787,7 +796,7 @@ void RenderPass3()
             hr = g_pSprite->SetTransform(&m);
             assert(hr == S_OK);
 
-            hr = g_pSprite->Draw(g_pPostTexture, NULL, NULL, NULL, 0xFFFFFFFF);
+            hr = g_pSprite->Draw(g_texRenderTargetShadow, NULL, NULL, NULL, 0xFFFFFFFF);
             assert(hr == S_OK);
         }
 
