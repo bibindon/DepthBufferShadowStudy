@@ -23,18 +23,18 @@ sampler shadowSampler = sampler_state
     AddressV  = CLAMP;
 };
 
-texture texture1;
-sampler textureSampler = sampler_state {
-    Texture = (texture1);
+texture g_texBase;
+sampler samplerBase = sampler_state {
+    Texture = (g_texBase);
     MipFilter = NONE;
     MinFilter = POINT;
     MagFilter = POINT;
 };
 
-texture texture2;
-sampler textureSampler2 = sampler_state
+texture g_texShadow;
+sampler samplerShadow = sampler_state
 {
-    Texture   = (texture2);
+    Texture   = (g_texShadow);
     MipFilter = LINEAR;
     MinFilter = LINEAR;
     MagFilter = LINEAR;
@@ -203,8 +203,8 @@ void VertexShader1(in  float4 inPosition  : POSITION,
 float4 CompositePS(in float4 inPosition : POSITION,
                    in float2 inTexCood  : TEXCOORD0) : COLOR0
 {
-    float4 a = tex2D(textureSampler,  inTexCood);
-    float4 b = tex2D(textureSampler2, inTexCood);
+    float4 a = tex2D(samplerBase,  inTexCood);
+    float4 b = tex2D(samplerShadow, inTexCood);
 
     float4 result = float4(0, 0, 0, 0);
 
