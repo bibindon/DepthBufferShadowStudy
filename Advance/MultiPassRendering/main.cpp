@@ -647,7 +647,7 @@ void RenderPass2()
 
         g_pEffect2->SetFloat("g_shadowBias", 0.001f);
         g_pEffect2->SetFloat("g_splitZ",     15.0f);
-        g_pEffect2->SetFloat("g_blendZ",      0.0f); // 最初は0で切替を確認
+        g_pEffect2->SetFloat("g_blendZ",      3.0f); // 最初は0で切替を確認 2~5
 
         UINT np=0; g_pEffect2->Begin(&np,0); g_pEffect2->BeginPass(0);
         for (int idx=0; idx<25; ++idx)
