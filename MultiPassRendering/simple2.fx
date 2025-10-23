@@ -1,19 +1,17 @@
-float4x4 g_matWorld;          // ワールド行列（新規）
-float4x4 g_matWorldViewProj;
-float4 g_lightNormal = { 0.3f, 1.0f, 0.5f, 0.0f };
-float4x4 g_matLightView;
-float    g_lightNear = 1.0f;
-float    g_lightFar  = 30.0f;   // まずはタイトに
 
-// ★ 追加：PCF用のテクセルサイズとバイアス（C++側で設定）
+
+float4x4 g_matWorld;
+float4x4 g_matWorldViewProj;
+
+float4x4 g_matLightView;
+float    g_lightNear;
+float    g_lightFar;
+float4x4 g_matLightViewProj;
+
 float g_shadowTexelW;   // = 1.0 / shadowMapWidth
 float g_shadowTexelH;   // = 1.0 / shadowMapHeight
 float g_shadowBias;     // 例: 0.002～0.005 で調整
 
-// ★ 追加：ライトの ViewProj（ライトでBを作ったときの行列そのもの）
-float4x4 g_matLightViewProj;
-
-// ★ 追加：シャドウ（= テクスチャB）を受け取る
 texture textureShadow;
 sampler shadowSampler = sampler_state
 {
@@ -25,10 +23,6 @@ sampler shadowSampler = sampler_state
     AddressV  = CLAMP;
 };
 
-float3 g_ambient = { 0.3f, 0.3f, 0.3f };
-
-bool g_bUseTexture = true;
-
 texture texture1;
 sampler textureSampler = sampler_state {
     Texture = (texture1);
@@ -37,62 +31,18 @@ sampler textureSampler = sampler_state {
     MagFilter = POINT;
 };
 
-void VertexShader1(in  float4 inPosition  : POSITION,
-                   in  float2 inTexCood   : TEXCOORD0,
-                   out float4 outPosition : POSITION,
-                   out float2 outTexCood  : TEXCOORD0)
+texture texture2;
+sampler textureSampler2 = sampler_state
 {
-    outPosition = inPosition;
-    outTexCood = inTexCood;
-}
+    Texture   = (texture2);
+    MipFilter = LINEAR;
+    MinFilter = LINEAR;
+    MagFilter = LINEAR;
+};
 
-void VertexShaderWS
-(
-    in  float4 inPositionOS  : POSITION,
-    in  float2 inTexCoord0   : TEXCOORD0,
-    out float4 outPositionCS : POSITION0,
-    out float2 outTexCoord0  : TEXCOORD0,
-    out float3 outWorldPos   : TEXCOORD1
-)
-{
-    float4 positionWS = mul(inPositionOS, g_matWorld);
-    outWorldPos   = positionWS.xyz;
-
-    outTexCoord0  = inTexCoord0;
-
-    float4 positionCS = mul(inPositionOS, g_matWorldViewProj);
-    outPositionCS = positionCS;
-}
-
-float4 PixelShader1
-(
-    in float4 inPositionCS : POSITION,
-    in float2 inTexCoord0  : TEXCOORD0,
-    in float3 inWorldPos   : TEXCOORD1
-) : COLOR0
-{
-    // 必要ならベースカラーを読む（任意）
-    float4 baseColor = tex2D(textureSampler, inTexCoord0);
-
-    // ライト View 空間 z を 0..1 に正規化（直交・透視どちらでも使える線形化）
-    float4 positionLV   = mul(float4(inWorldPos, 1.0f), g_matLightView);
-    float  depthLinear  = (positionLV.z - g_lightNear) / (g_lightFar - g_lightNear);
-    float  depth01      = saturate(depthLinear);
-
-    // とりあえず深度を可視化（必要なら baseColor へ合成に変更可）
-    //return float4(depth01, depth01, depth01, 1.0f);
-    return baseColor;
-}
-
-technique Technique1
-{
-    pass Pass1
-    {
-        CullMode = NONE;
-        VertexShader = compile vs_3_0 VertexShaderWS();
-        PixelShader  = compile ps_3_0 PixelShader1();
-    }
-}
+//-------------------------------------------------------------------------
+// Technique 1
+//-------------------------------------------------------------------------
 
 struct VSInDepth
 {
@@ -129,64 +79,29 @@ float4 DepthFromLightPS(VSOutDepth pin) : COLOR0
     return float4(d, d, d, 1.0f);
 }
 
-technique TechniqueDepthFromLight
-{
-    pass P0
-    {
-        CullMode = NONE;
-        ZEnable = TRUE;
-        ZWriteEnable = TRUE;
+//-------------------------------------------------------------------------
+// Technique 2
+//-------------------------------------------------------------------------
 
-        VertexShader = compile vs_3_0 DepthFromLightVS();
-        PixelShader  = compile ps_3_0 DepthFromLightPS();
-    }
+void VertexShaderWS(in  float4 inPositionOS  : POSITION,
+                    in  float2 inTexCoord0   : TEXCOORD0,
+
+                    out float4 outPositionCS : POSITION0,
+                    out float2 outTexCoord0  : TEXCOORD0,
+                    out float3 outWorldPos   : TEXCOORD1)
+{
+    float4 positionWS = mul(inPositionOS, g_matWorld);
+    outWorldPos   = positionWS.xyz;
+
+    outTexCoord0  = inTexCoord0;
+
+    float4 positionCS = mul(inPositionOS, g_matWorldViewProj);
+    outPositionCS = positionCS;
 }
 
-// 既存定義はそのまま…
-
-// ▼ 追加：2枚目のテクスチャ
-texture texture2;
-sampler textureSampler2 = sampler_state
-{
-    Texture   = (texture2);
-    MipFilter = LINEAR;
-    MinFilter = LINEAR;
-    MagFilter = LINEAR;
-};
-
-// ▼ 2枚を線形合成
-float4 CompositePS(in float4 inPosition : POSITION,
-                   in float2 inTexCood  : TEXCOORD0) : COLOR0
-{
-    float4 a = tex2D(textureSampler,  inTexCood);
-    float4 b = tex2D(textureSampler2, inTexCood);
-
-    float4 result = float4(0, 0, 0, 0);
-
-    result.rgb = a.rgb * b.a;
-    result = lerp(a, b, b.a);
-
-    result.a = 1.f;
-
-    return result;
-}
-
-technique TechniqueComposite
-{
-    pass P0
-    {
-        CullMode = NONE;
-        AlphaBlendEnable = FALSE;
-
-        VertexShader = compile vs_3_0 VertexShader1();
-        PixelShader  = compile ps_3_0 CompositePS();
-    }
-}
-
-float4 PixelShaderWorldPos(
-    in float4 posCS     : POSITION0,
-    in float2 uv        : TEXCOORD0,
-    in float3 worldPos  : TEXCOORD1) : COLOR0
+float4 PixelShaderWorldPos(in float4 posCS     : POSITION0,
+                           in float2 uv        : TEXCOORD0,
+                           in float3 worldPos  : TEXCOORD1) : COLOR0
 {
     // 1) ライトView空間 z を 0..1 に正規化 → depthViewSpace
     float4 posLV = mul(float4(worldPos, 1.0f), g_matLightView);
@@ -270,6 +185,52 @@ float4 PixelShaderWorldPos(
     return float4(0.0f, 0.0f, 0.0f, 0.5f * shadow);
 }
 
+//-------------------------------------------------------------------------
+// Technique 3
+//-------------------------------------------------------------------------
+
+void VertexShader1(in  float4 inPosition  : POSITION,
+                   in  float2 inTexCood   : TEXCOORD0,
+
+                   out float4 outPosition : POSITION,
+                   out float2 outTexCood  : TEXCOORD0)
+{
+    outPosition = inPosition;
+    outTexCood = inTexCood;
+}
+
+// 2枚の画像を線形補間で合成する
+float4 CompositePS(in float4 inPosition : POSITION,
+                   in float2 inTexCood  : TEXCOORD0) : COLOR0
+{
+    float4 a = tex2D(textureSampler,  inTexCood);
+    float4 b = tex2D(textureSampler2, inTexCood);
+
+    float4 result = float4(0, 0, 0, 0);
+
+    result.rgb = a.rgb * b.a;
+    result = lerp(a, b, b.a);
+
+    result.a = 1.f;
+
+    return result;
+}
+
+// 光源から見た深度を描画するテクニック
+technique TechniqueDepthFromLight
+{
+    pass P0
+    {
+        CullMode = NONE;
+        ZEnable = TRUE;
+        ZWriteEnable = TRUE;
+
+        VertexShader = compile vs_3_0 DepthFromLightVS();
+        PixelShader  = compile ps_3_0 DepthFromLightPS();
+    }
+}
+
+// 光源から見た深度画像とカメラから見たワールド座標を使って、影を描画するテクニック
 technique TechniqueWorldPos
 {
     pass P0
@@ -279,6 +240,19 @@ technique TechniqueWorldPos
         ZWriteEnable= TRUE;
         VertexShader = compile vs_3_0 VertexShaderWS();
         PixelShader  = compile ps_3_0 PixelShaderWorldPos();
+    }
+}
+
+// 二つの画像を合成するテクニック
+technique TechniqueComposite
+{
+    pass P0
+    {
+        CullMode = NONE;
+        AlphaBlendEnable = FALSE;
+
+        VertexShader = compile vs_3_0 VertexShader1();
+        PixelShader  = compile ps_3_0 CompositePS();
     }
 }
 

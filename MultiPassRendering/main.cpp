@@ -264,14 +264,14 @@ void InitD3D(HWND hWnd)
     }
     else
     {
-//    hResult = D3DXCreateTexture(g_pd3dDevice,
-//                                SCREEN_W,
-//                                SCREEN_H,
-//                                1,
-//                                D3DUSAGE_RENDERTARGET,
-//                                D3DFMT_A16B16G16R16,
-//                                D3DPOOL_DEFAULT,
-//                                &g_pRenderTarget2);
+        hResult = D3DXCreateTexture(g_pd3dDevice,
+                                    SCREEN_W,
+                                    SCREEN_H,
+                                    1,
+                                    D3DUSAGE_RENDERTARGET,
+                                    D3DFMT_A16B16G16R16,
+                                    D3DPOOL_DEFAULT,
+                                    &g_pRenderTarget2);
     }
 
     assert(hResult == S_OK);
@@ -283,6 +283,7 @@ void InitD3D(HWND hWnd)
     HRESULT hr = g_pd3dDevice->CreateDepthStencilSurface(bdesc.Width,
                                                          bdesc.Height,
                                                          D3DFMT_D16,
+                                                         //D3DFMT_D16,
                                                          D3DMULTISAMPLE_NONE,
                                                          0,
                                                          TRUE,

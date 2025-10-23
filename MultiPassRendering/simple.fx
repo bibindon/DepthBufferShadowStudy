@@ -38,7 +38,7 @@ void VertexShader1(in float4 inPosition    : POSITION,
     // ランバート拡散照明モデルの影は余計なので消したほうがいいかもしれない。
     // もしくはハーフランバートにするか。
     // ハーフランバートは悪くない見た目のように感じる。
-    if (true)
+    if (false)
     {
         lightIntensity = dot(inNormal, normalize(g_lightDir.xyz));
 
